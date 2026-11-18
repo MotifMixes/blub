@@ -1,0 +1,56 @@
+[package]
+name = "blub-frontend"
+description = "Blub's user interface (desktop and Android): window, menus, input, sound, saves"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+blub-piano.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+toml.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+egui = "0.36.2"
+egui-wgpu = "0.36.2"
+cpal = "0.18"
+png = "0.18"
+# The fish icon: drawn from egui's own emoji font.
+ab_glyph = "0.2.32"
+epaint_default_fonts = "0.36.2"
+# Reading GitHub's release list (update check).
+serde_json = "1"
+# Zipped cartridges and update packages (zip.rs), rewind snapshots.
+miniz_oxide = "0.8"
+crc32fast.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+egui-winit = "0.36.2"
+rfd = "0.17"
+gilrs = "0.11"
+# MIDI keyboards for the I Can Play Piano (piano.rs).
+midir = "0.11"
+# The update check (HTTPS to api.github.com).
+ureq = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Unpacking the Linux release (.tar.gz) for the in-app update.
+flate2 = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation"] }
+# Recording without FFmpeg: Media Foundation's H.264/AAC encoder (record.rs)
+# and the Videos folder.
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_UI_Shell"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+egui-winit = { version = "0.36.2", default-features = false, features = ["android-native-activity"] }
+
+[dev-dependencies]
+naga = { version = "30.0.1", features = ["wgsl-in"] }

@@ -1,0 +1,21 @@
+[package]
+name = "blub-android"
+description = "Blub for Android (NativeActivity): the shared frontend on a phone or handheld"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "blub"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[target.'cfg(target_os = "android")'.dependencies]
+blub-frontend.workspace = true
+winit = { workspace = true, features = ["android-native-activity"] }
+tracing = { workspace = true, features = ["log"] }
+log = "0.4"
+android_logger = "0.15"
+jni = "0.21"
+libc = "0.2"

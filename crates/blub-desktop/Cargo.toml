@@ -1,0 +1,31 @@
+[package]
+name = "blub-desktop"
+description = "Blub desktop app and headless test runner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "blub"
+path = "src/main.rs"
+
+# The windowed app (no console window): double-click to play.
+[[bin]]
+name = "blub-gui"
+path = "src/app.rs"
+
+[dependencies]
+blub-piano.workspace = true
+blub-frontend.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+png = "0.18"
+
+[build-dependencies]
+embed-resource = "3"
+# The .exe icon, drawn by blub-frontend/src/fish_glyph.rs.
+ab_glyph = "0.2.32"
+epaint_default_fonts = "0.36.2"

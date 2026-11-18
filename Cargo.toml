@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/blub-piano",
+    "crates/blub-desktop",
+    "crates/blub-frontend",
+    "crates/blub-android",
+]
+default-members = [
+    "crates/blub-piano",
+    "crates/blub-desktop",
+    "crates/blub-frontend",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+# License intentionally not set yet: the project owner must choose one.
+# Code derived from MAME (BSD-3-Clause: the SPG2xx and unSP models) must
+# retain its notice (see THIRD-PARTY-NOTICES.txt).
+
+[workspace.dependencies]
+blub-piano = { path = "crates/blub-piano" }
+blub-frontend = { path = "crates/blub-frontend" }
+
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+sha1 = "0.11"
+crc32fast = "1.5"
+clap = { version = "4.6", features = ["derive"] }
+anyhow = "1"
+winit = "0.30"
+wgpu = "30"
+pollster = "1"
+
+[profile.release]
+# Whole-program optimisation: the interpreter's hot loop spans crates,
+# so cross-crate inlining matters.
+lto = "fat"
+codegen-units = 1
+
+[profile.dev]
+# Emulator cores are unusably slow at opt-level 0.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+# The piano core runs a 27 MHz processor: full optimisation even in debug
+# builds keeps it real time.
+[profile.dev.package.blub-piano]
+opt-level = 3
