@@ -1,5 +1,5 @@
 //! The SPG2xx video unit (word addresses 0x2800-0x2fff): two tile layers
-//! ("pages"), 64 sprites on the SPG28x, a 256-colour RGB555 palette (bit 15
+//! ("pages"), 256 sprites on the SPG24x (the SPG28x has 64), a 256-colour RGB555 palette (bit 15
 //! set: transparent) and four priority levels, drawn back to front as page
 //! 1, page 2, sprites for each level. The registers and the drawing follow
 //! MAME's spg2xx_video / spg_renderer (BSD-3-Clause; see
@@ -11,7 +11,7 @@ pub const SCREEN_W: usize = 320;
 pub const SCREEN_H: usize = 240;
 /// Lines in an NTSC frame.
 pub const LINES: u32 = 262;
-pub const SPRITES: usize = 64;
+pub const SPRITES: usize = 256;
 
 /// Video interrupt bits (status 0x63, enable 0x62): vertical blank, the
 /// set screen position, sprite DMA done.

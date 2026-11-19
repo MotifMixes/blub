@@ -118,7 +118,7 @@ fn main() {
             let held = |i: piano::Input| matches!(i, piano::Input::Key(19) | piano::Input::Key(20) | piano::Input::Button(blub_piano::Button::Enter));
             let cap = |i: piano::Input| keys.iter().find(|(_, x)| *x == i).map(|(k, _)| blub_frontend::settings::cap_text(&format!("{k:?}")));
             let none = |_: piano::Input| String::new();
-            let lit = console_view::Lit { pressed: &held, cap: &cap, show_caps: true, keys: &none, whole_pixels: false };
+            let lit = console_view::Lit { pressed: &held, hands: (false, true), cap: &cap, show_caps: true, keys: &none, whole_pixels: false };
             let layout = console_view::layout();
             let (shapes, screen) = console_view::capture_shapes(&layout, (view.x as u32, view.y as u32), &lit, ui.ctx());
             let at = egui::vec2(6.0, icons_h + 6.0);

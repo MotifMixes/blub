@@ -30,7 +30,7 @@ What some buttons do in each game is not yet known for certain.
 
 ## The console view
 
-`F7` (or **Video › Console view**) shows the picture on a TV above a drawing of the piano. Click its keys and buttons to play them: hold the mouse button and slide along the keys to play one after another. Keys light up while they are held, from the PC keyboard, a MIDI keyboard or the mouse. **Show keys on the console** shows each one's PC key.
+`F7` (or **Video › Console view**) shows the picture on a TV above a drawing of the piano, made after the real one: its colour-coded keys, the panel's buttons and the hands' lights, which light up red for the hand a song is teaching. The drawn keys sit right under the keyboard the songs show on the TV. Click its keys and buttons to play them: hold the mouse button and slide along the keys to play one after another. Keys light up while they are held, from the PC keyboard, a MIDI keyboard or the mouse. **Show keys on the console** shows each one's PC key.
 
 ## Keyboard Mode
 

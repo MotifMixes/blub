@@ -11,8 +11,6 @@
 //! those due when the CPU loop reaches `next_event`.
 
 use crate::cpu;
-use crate::eeprom::Eeprom;
-use crate::sio_audio::SioAudio;
 use crate::sound::{self, Sound};
 use crate::video::{self, LINES, SCREEN_H, Video};
 use serde::{Deserialize, Serialize};
@@ -134,7 +132,6 @@ pub struct Bus {
     uart_tx: Ticker,
     uart_rx: Ticker,
     adc: Ticker,
-    input_feed: Ticker,
     audio: Ticker,
     timer_a_preload: u16,
     timer_b_preload: u16,
@@ -148,10 +145,15 @@ pub struct Bus {
     uart_rx_available: bool,
     uart_rx_irq: bool,
     uart_tx_irq: bool,
-    /// Bytes the keyboard and mouse have still to send (already inverted,
-    /// as the line carries them), fed to the UART 320 times a second.
-    pub input_bytes: VecDeque<u8>,
-    portc_toggle: u16,
+    /// What the program drives out of port C (its lights: see
+    /// Piano::hand_lights).
+    #[serde(skip)]
+    pub port_c_out: u16,
+    /// Research: port output changes (see Piano::trace_ports).
+    #[serde(skip)]
+    pub port_log: Option<Vec<String>>,
+    #[serde(skip)]
+    port_last: [Option<u16>; 3],
     /// The keys held, by octave (bit 0 F ... bit 11 E; octave 0 the
     /// lowest), and the buttons scanned with each octave (port C).
     #[serde(skip)]
@@ -161,17 +163,10 @@ pub struct Bus {
     /// What ports A and C read: the octave the scan last picked.
     inlatch_a: u16,
     inlatch_c: u16,
-    /// The 24C08 on port C's bits 0 (SDA) and 1 (SCL).
-    pub eeprom: Eeprom,
-    /// The serial interface (SIO, port C bits 11-12): bits left in the
-    /// transfer and its direction. Not the EEPROM: it drives a sound chip
-    /// (`SioAudio`) that the system streams compressed sound to.
+    /// The serial interface (SIO): bits left in the transfer and its
+    /// direction.
     sio_bits: u32,
     sio_writing: bool,
-    pub sio_audio: SioAudio,
-    /// The status word being clocked out on port C bit 11, and its bits left.
-    sio_status: u16,
-    sio_status_bits: u8,
     /// The system turned the console off (SYSTEM_CTRL bit 15); not kept in
     /// states.
     #[serde(skip)]
@@ -208,7 +203,6 @@ impl Bus {
             uart_tx: Ticker::OFF,
             uart_rx: Ticker::OFF,
             adc: Ticker::OFF,
-            input_feed: Ticker::OFF,
             audio: Ticker::OFF,
             timer_a_preload: 0,
             timer_b_preload: 0,
@@ -222,18 +216,15 @@ impl Bus {
             uart_rx_available: false,
             uart_rx_irq: false,
             uart_tx_irq: false,
-            input_bytes: VecDeque::new(),
-            portc_toggle: 0,
+            port_c_out: 0,
+            port_log: None,
+            port_last: [None; 3],
             keys: [0; 3],
             buttons: [0; 3],
             inlatch_a: 0,
             inlatch_c: 0,
-            eeprom: Eeprom::new(),
             sio_bits: 0,
             sio_writing: false,
-            sio_audio: SioAudio::default(),
-            sio_status: 0,
-            sio_status_bits: 0,
             powered_off: false,
             uart_out: Vec::new(),
         };
@@ -248,7 +239,6 @@ impl Bus {
         self.io[PRNG2] = 0x1658;
         self.sys = Ticker::hz(self.now, 4096);
         self.rng = Ticker::hz(self.now, 1234);
-        self.input_feed = Ticker::hz(self.now, 320);
         self.audio = Ticker { next: (self.now + sound::CYCLES_PER_SAMPLE) * SUB, period: sound::CYCLES_PER_SAMPLE * SUB };
         self.line = 0;
         self.line_end = self.now + self.line_cycles(0);
@@ -273,7 +263,6 @@ impl Bus {
             self.uart_tx.at(),
             self.uart_rx.at(),
             self.adc.at(),
-            self.input_feed.at(),
             self.audio.at(),
         ]
         .into_iter()
@@ -449,6 +438,18 @@ impl Bus {
         if write && index == 0 {
             self.scan_select(what);
         }
+        if write && index == 2 {
+            self.port_c_out = what & dir;
+        }
+        if write
+            && let Some(log) = &mut self.port_log
+        {
+            let out = what & dir;
+            if self.port_last[index] != Some(out) {
+                self.port_last[index] = Some(out);
+                log.push(format!("port {} out {out:04x} (dir {dir:04x})", ['A', 'B', 'C'][index]));
+            }
+        }
         what &= !pull;
         if !write {
             what |= self.port_in(index) & pull;
@@ -535,17 +536,6 @@ impl Bus {
                 self.gpio((reg - 1) / 5, true);
             }
             2..=IOC_MASK => {
-                let old = self.io[reg];
-                // The sound chip's status, read by bit-banging port C
-                // (0x3f0c90): latched when bit 11 turns to an input, a bit
-                // out (the top first) at each rise of bit 12, the clock.
-                if reg == 13 && old & 0x0800 != 0 && data & 0x0800 == 0 {
-                    self.sio_status = self.sio_audio.status();
-                    self.sio_status_bits = 16;
-                } else if reg == 12 && old & 0x1000 == 0 && data & 0x1000 != 0 && self.sio_status_bits > 0 {
-                    self.sio_status <<= 1;
-                    self.sio_status_bits -= 1;
-                }
                 self.io[reg] = data;
                 if (reg - 1) % 5 != 4 {
                     self.gpio((reg - 1) / 5, true);
@@ -695,7 +685,6 @@ impl Bus {
             SIO_SETUP => {
                 self.io[reg] = data;
                 if data & 0x0400 != 0 {
-                    self.sio_audio.command(self.io[0x52]);
                     self.io[SIO_STATUS] |= 0x8000;
                     self.sio_bits = if data & 0x80 != 0 { 16 } else { 8 };
                     self.sio_writing = data & 0x20 != 0;
@@ -705,9 +694,6 @@ impl Bus {
             }
             SIO_DATA => {
                 self.io[reg] = data;
-                if self.io[SIO_SETUP] & 0x0400 != 0 {
-                    self.sio_audio.data(data);
-                }
                 if self.io[SIO_SETUP] & 0x8000 != 0 && self.sio_writing {
                     self.sio_bits = self.sio_bits.saturating_sub(1);
                     if self.sio_bits == 0 {
@@ -728,17 +714,6 @@ impl Bus {
             _ => self.io[reg] = data,
         }
         self.update_next();
-    }
-
-    /// A byte arriving on the UART's receive line.
-    fn uart_receive(&mut self, byte: u8) {
-        if self.io[UART_CTRL] & 0x40 == 0 {
-            return;
-        }
-        self.uart_rx_fifo.push_back(byte);
-        if self.uart_rx.next == u64::MAX {
-            self.start_uart_rx();
-        }
     }
 
     fn timer_a_inc(&mut self) {
@@ -832,19 +807,6 @@ impl Bus {
         while self.audio.due(now) {
             let (ram, rom, cart) = (&self.ram, &self.rom, &self.cart);
             self.sound.tick(&|a| peek_parts(ram, rom, cart, a));
-            // The SIO sound chip, mixed into both sides.
-            let chip = self.sio_audio.tick();
-            if chip != 0 {
-                let n = self.sound.out.len();
-                for s in &mut self.sound.out[n - 2..] {
-                    *s = (*s as i32 + chip).clamp(-32768, 32767) as i16;
-                }
-            }
-        }
-        while self.input_feed.due(now) {
-            if let Some(b) = self.input_bytes.pop_front() {
-                self.uart_receive(b);
-            }
         }
         self.update_next();
         frame_done

@@ -17,9 +17,6 @@
 
 mod bus;
 pub mod cpu;
-#[allow(dead_code)]
-mod eeprom;
-mod sio_audio;
 mod sound;
 mod video;
 
@@ -41,17 +38,11 @@ pub const KEYS: usize = 36;
 /// lowest F is F2 (41).
 pub const MIDI_KEY0: u8 = 41;
 
-/// The key a MIDI note plays: notes outside the keyboard's three octaves
-/// are moved by whole octaves into it.
-pub fn midi_key(note: u8) -> usize {
-    let mut n = note as i32 - MIDI_KEY0 as i32;
-    while n < 0 {
-        n += 12;
-    }
-    while n >= KEYS as i32 {
-        n -= 12;
-    }
-    n as usize
+/// The key a MIDI note plays: None outside the keyboard's three octaves
+/// (F2 to E5), which have no key.
+pub fn midi_key(note: u8) -> Option<usize> {
+    let n = (note as usize).checked_sub(MIDI_KEY0 as usize)?;
+    (n < KEYS).then_some(n)
 }
 
 /// The console's buttons, as (octave scan, port C bit) from MAME's
@@ -142,8 +133,14 @@ const POWER_BIT: u16 = 0x0800;
 /// picture), clear TV Mode.
 const KEYBOARD_MODE_BIT: u16 = 0x0001;
 
+/// The hands' lights: port C bits 7 (left) and 8 (right), lit while
+/// that hand plays a song (seen in Piano Favorites: a song starts with
+/// the right hand's, and the hands button steps right, left, both).
+const LEFT_HAND_LIGHT: u16 = 0x0080;
+const RIGHT_HAND_LIGHT: u16 = 0x0100;
+
 /// The save state format's version (bumped when the layout changes).
-const STATE_VERSION: u32 = 1;
+const STATE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 pub struct Piano {
@@ -319,6 +316,22 @@ impl Piano {
         self.bus.sound.trace = Some(Vec::new());
     }
 
+    /// The hands' lights on the panel: (left, right) lit.
+    pub fn hand_lights(&self) -> (bool, bool) {
+        let out = self.bus.port_c_out;
+        (out & LEFT_HAND_LIGHT != 0, out & RIGHT_HAND_LIGHT != 0)
+    }
+
+    /// Research: logs changes to what the program drives out of the I/O
+    /// ports (taken with `take_port_log`).
+    pub fn trace_ports(&mut self) {
+        self.bus.port_log = Some(Vec::new());
+    }
+
+    pub fn take_port_log(&mut self) -> Vec<String> {
+        self.bus.port_log.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
     pub fn take_sound_log(&mut self) -> Vec<String> {
         self.bus.sound.trace.as_mut().map(std::mem::take).unwrap_or_default()
     }
@@ -335,6 +348,10 @@ impl Piano {
 
     pub fn video_regs(&self) -> &[u16] {
         &self.bus.video.regs
+    }
+
+    pub fn sprite_regs(&self) -> &[u16] {
+        &self.bus.video.sprites
     }
 
     pub fn line(&self) -> u32 {

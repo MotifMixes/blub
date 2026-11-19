@@ -842,7 +842,7 @@ impl App {
     /// measure at this display scaling. `scale` 0 = the largest that fits
     /// the monitor, as a normal window (never maximized), centred. Returns
     /// true once the area fits.
-    fn fit_window(window: &Window, scale: u32, area: (f32, f32), unit: (u32, u32)) -> bool {
+    fn fit_window(window: &Window, scale: u32, area: (f32, f32), unit: (u32, u32), breathe: bool) -> bool {
         if window.fullscreen().is_some() || window.is_maximized() || area.0 < 1.0 || area.1 < 1.0 {
             return true;
         }
@@ -860,8 +860,10 @@ impl App {
         let taskbar = (56.0 * window.scale_factor()) as u32;
         let room_w = mon.width.saturating_sub(frame.0 + chrome_w);
         let room_h = mon.height.saturating_sub(frame.1 + chrome_h + taskbar);
-        // Fit screen leaves some breathing room (about a tenth of the height).
-        let room_h = if scale == 0 { room_h * 9 / 10 } else { room_h };
+        // Fit screen leaves some breathing room (about a tenth of the
+        // height), but not for the console view: its picture snaps to whole
+        // multiples, so the console is as tall as the screen allows.
+        let room_h = if scale == 0 && breathe { room_h * 9 / 10 } else { room_h };
         let most = (room_w / unit.0).min(room_h / unit.1).max(1);
         let times = if scale == 0 { most } else { scale.min(most) };
         let want = PhysicalSize::new(unit.0 * times + chrome_w, unit.1 * times + chrome_h);
@@ -1464,6 +1466,7 @@ impl App {
         });
         let (ui_state, settings, library) = (&mut self.ui, &mut self.settings, &mut self.library);
         let (view, held) = (&mut self.console_view, &self.held);
+        let hands = self.session.as_ref().map_or((false, false), |s| s.emu.stats().hands);
         // Where the picture is inside the console view (None: the plain view).
         let mut screen = None;
         let mut view_events = Vec::new();
@@ -1478,6 +1481,7 @@ impl App {
                 let cap = |i: Input| settings.keys_for(i).first().map(|k| crate::settings::cap_text(k));
                 let lit = crate::console_view::Lit {
                     pressed: &pressed,
+                    hands,
                     cap: &cap,
                     show_caps: settings.console_view_keys,
                     keys: &keys,
@@ -1506,7 +1510,7 @@ impl App {
                 // Half the picture: a whole scale is two of these.
                 None => (((SCREEN_W / 2) as u32, (SCREEN_H / 2) as u32), self.settings.window_scale * 2),
             };
-            if Self::fit_window(&gpu.window, scale, (area.width() * ppp, area.height() * ppp), unit) {
+            if Self::fit_window(&gpu.window, scale, (area.width() * ppp, area.height() * ppp), unit, view_layout.is_none()) {
                 self.fit_window = 0;
             }
         }

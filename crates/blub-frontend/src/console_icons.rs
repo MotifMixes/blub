@@ -55,30 +55,37 @@ pub fn paint_device(p: &egui::Painter, rect: egui::Rect, hw: Hardware) {
     let at = |x: f32, y: f32| c + v(x, y);
     let rr = |x: f32, y: f32, w: f32, h: f32| egui::Rect::from_center_size(at(x, y), v(w, h));
     match hw {
-        // I Can Play Piano: a wide blue keyboard case seen from the front,
-        // a white panel of buttons along its top (the big Enter button at
-        // the right), and below it the keys: white keys with black keys
-        // raised between them.
+        // I Can Play Piano: a wide glossy black keyboard seen from the
+        // front, a silver-and-purple speaker at each end of its top, a pale
+        // panel of coloured buttons between them, and below it the keys:
+        // white keys with colour-coded pads, black keys raised between them.
         Hardware::Piano => {
-            let blue = color(hw);
             let case = rr(0.0, 2.0, 96.0, 52.0);
             p.rect_filled(case.translate(v(0.0, 3.0)), 10.0 * u, C::from_black_alpha(45));
-            p.rect_filled(case, 10.0 * u, mix(blue, C::BLACK, 0.3));
-            p.rect_filled(case.shrink(1.8 * u), 9.0 * u, blue);
-            p.add(egui::Shape::ellipse_filled(at(0.0, -16.0), v(36.0, 4.0), C::from_white_alpha(34)));
-            // The button panel.
-            p.rect_filled(rr(0.0, -13.0, 84.0, 12.0), 4.0 * u, C::from_rgb(232, 238, 246));
-            for (i, col) in [C::from_rgb(250, 200, 40), C::from_rgb(235, 80, 70), C::from_rgb(90, 190, 90), C::from_rgb(160, 110, 220)].into_iter().enumerate() {
-                button(p, at(-34.0 + i as f32 * 9.0, -13.0), 2.8 * u, col);
+            p.rect_filled(case, 10.0 * u, C::from_gray(60));
+            p.rect_filled(case.shrink(1.4 * u), 9.0 * u, C::from_rgb(20, 20, 24));
+            p.add(egui::Shape::ellipse_filled(at(0.0, -21.0), v(34.0, 1.6), C::from_white_alpha(30)));
+            for x in [-38.0, 38.0] {
+                p.rect_filled(rr(x, -13.0, 15.0, 14.0), 3.0 * u, C::from_gray(196));
+                p.add(egui::Shape::ellipse_filled(at(x, -13.0), v(6.0, 5.6), C::from_rgb(92, 70, 205)));
             }
-            button(p, at(32.0, -13.0), 4.0 * u, C::from_rgb(250, 140, 40));
-            // The keys: 12 white keys, black keys over them.
+            // The button panel.
+            p.rect_filled(rr(0.0, -13.0, 58.0, 13.0), 3.0 * u, C::from_rgb(228, 230, 244));
+            for (i, col) in [C::from_rgb(40, 175, 170), C::from_rgb(245, 205, 40), C::from_rgb(245, 150, 40), C::from_rgb(232, 76, 48), C::from_rgb(70, 110, 215)].into_iter().enumerate() {
+                button(p, at(-22.0 + i as f32 * 9.5, -13.0), 2.8 * u, col);
+            }
+            button(p, at(23.0, -13.0), 3.6 * u, C::from_rgb(250, 205, 30));
+            // The keys: 12 white keys (F to C), black keys over them.
             let keys = rr(0.0, 10.0, 84.0, 26.0);
-            p.rect_filled(keys.expand(1.0 * u), 2.5 * u, mix(blue, C::BLACK, 0.45));
+            p.rect_filled(keys.expand(1.0 * u), 2.5 * u, C::from_gray(8));
             let w = keys.width() / 12.0;
+            let pads = [Some(C::from_rgb(110, 200, 70)), Some(C::from_rgb(245, 215, 40)), Some(C::from_rgb(214, 170, 140)), Some(C::from_rgb(220, 120, 210)), None, Some(C::from_rgb(70, 170, 240)), Some(C::from_rgb(250, 160, 30))];
             for i in 0..12 {
                 let r = egui::Rect::from_min_size(keys.min + egui::vec2(i as f32 * w + 0.4 * u, 0.0), egui::vec2(w - 0.8 * u, keys.height()));
                 p.rect_filled(r, 1.2 * u, C::from_gray(246));
+                if let Some(col) = pads[i % 7] {
+                    p.rect_filled(egui::Rect::from_center_size(egui::pos2(r.center().x, r.max.y - 5.0 * u), egui::vec2(w * 0.6, w * 0.6)), 0.6 * u, col);
+                }
             }
             // Black keys after the white keys F, G, A, C and D (the white
             // keys run F to C).

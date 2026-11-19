@@ -155,10 +155,10 @@ pub fn default_keys() -> BTreeMap<String, String> {
 /// "Numpad7" -> "7", "PageUp" -> "PgUp").
 pub fn cap_text(name: &str) -> String {
     match name {
-        "ArrowUp" => "↑".into(),
-        "ArrowDown" => "↓".into(),
-        "ArrowLeft" => "←".into(),
-        "ArrowRight" => "→".into(),
+        "ArrowUp" => "⏶".into(),
+        "ArrowDown" => "⏷".into(),
+        "ArrowLeft" => "⏴".into(),
+        "ArrowRight" => "⏵".into(),
         "NumpadMultiply" => "*".into(),
         "NumpadAdd" => "+".into(),
         "NumpadDivide" => "/".into(),
@@ -379,7 +379,7 @@ mod tests {
         assert!(default_keys().keys().all(|k| key_from_name(k).is_some()));
         assert_eq!(
             (cap_text("ArrowUp").as_str(), cap_text("KeyZ").as_str(), cap_text("Numpad7").as_str()),
-            ("↑", "Z", "7")
+            ("⏶", "Z", "7")
         );
         assert_eq!((cap_text("PageDown").as_str(), cap_text("IntlBackslash").as_str()), ("PgDn", "\\"));
     }

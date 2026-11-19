@@ -1359,7 +1359,7 @@ fn ai_notice_text(ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("Please read this before you start").size(13.5).color(ACCENT));
         ui.add_space(12.0);
         for text in [
-            "Blub is written almost entirely by an AI coding assistant (Anthropic's Claude), working under my \
+            "Blub is written almost entirely by an AI coding assistant, working under my \
              direction: I choose what to work on, test it, supply the hardware references and decide what goes in.",
             "Many people don't want to use AI-written software, for reasons I respect: licensing and where training \
              data comes from, code quality, and the work of people who reverse-engineer hardware by hand. If that's \

@@ -33,6 +33,8 @@ pub struct Stats {
     pub speed_percent: f64,
     /// The program turned the console off.
     pub powered_off: bool,
+    /// The hands' lights on the panel: (left, right).
+    pub hands: (bool, bool),
 }
 
 struct Shared {
@@ -189,7 +191,7 @@ fn run(s: &Shared) {
             let mut p = s.piano.lock().unwrap_or_else(|e| e.into_inner());
             p.run_frame();
             p.render(&mut picture);
-            (p.take_audio(), p.powered_off())
+            (p.take_audio(), (p.powered_off(), p.hand_lights()))
         };
         s.frame.lock().unwrap().copy_from_slice(&picture);
         if let Some((_, frames)) = &mut pace {
@@ -207,7 +209,8 @@ fn run(s: &Shared) {
         meter.1 += 1;
         let elapsed = meter.0.elapsed().as_secs_f64();
         let mut stats = s.stats.lock().unwrap();
-        stats.powered_off |= off;
+        stats.powered_off |= off.0;
+        stats.hands = off.1;
         if elapsed >= 1.0 {
             stats.speed_percent = meter.1 as f64 / elapsed / FPS * 100.0;
             meter = (Instant::now(), 0);

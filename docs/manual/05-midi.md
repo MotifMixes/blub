@@ -9,6 +9,6 @@ A keyboard plugged in later is found within a few seconds. **Input › MIDI inpu
 
 ## Notes and octaves
 
-The piano has three octaves, F2 to E5 (its middle C is middle C). Notes below or above them fold into them by whole octaves, so every key of a bigger keyboard plays something. **Octave shift** in the same menu moves everything up or down by one or two octaves first.
+The piano has three octaves, F2 to E5 (its middle C is middle C). Notes below or above them play nothing, so a bigger keyboard plays just as the piano does and no key surprises you. **Octave shift** in the same menu moves everything up or down by one or two octaves first.
 
-A key stays down while any note on it is held, so two notes that fold onto the same key don't cut each other off. "All notes off" from the keyboard lets go of everything.
+"All notes off" from the keyboard lets go of everything.

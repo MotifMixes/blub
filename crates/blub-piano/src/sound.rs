@@ -6,9 +6,8 @@
 //! THIRD-PARTY-NOTICES.txt), except that ADPCM is scaled to the full 16-bit
 //! range (MAME mixes the 12-bit decoder output as is). Every other format
 //! fills the 16-bit wave data register (8-bit as b<<8|b, ADPCM36 as a
-//! nibble at the top of a word), and the BIOS and games play everything,
-//! speech included, on OKI ADPCM channels: unscaled, the BIOS music would
-//! peak at -46 dBFS (scaled: -22). See docs/clickstart.md.
+//! nibble at the top of a word). The beat counter runs 26/27 as fast as
+//! MAME's (see BEAT_TICKS and docs/hardware.md).
 
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +42,13 @@ const MAIN_VOLUME: usize = 0x01;
 const FIQ_ENABLE: usize = 0x02;
 const FIQ_STATUS: usize = 0x03;
 const BEAT_BASE_COUNT: usize = 0x04;
+/// The beat counter's clock, as BEAT_TICKS ticks per BEAT_SAMPLES output
+/// samples. MAME ticks it once a sample (70312.5 Hz), but a recording of a
+/// real I Can Play Piano (Piano Favorites' menu music, YouTube -xnD7rASA3g)
+/// plays at the same pitch 3.88% slower, which 26/27 matches (the cause
+/// in the chip is unknown).
+const BEAT_TICKS: u8 = 26;
+const BEAT_SAMPLES: u8 = 27;
 const BEAT_COUNT: usize = 0x05;
 const ENVCLK0: usize = 0x06;
 const ENVCLK0_HIGH: usize = 0x07;
@@ -101,6 +107,10 @@ pub struct Sound {
     ctrl: Vec<u16>,
     ch: [Channel; 16],
     beat_base: u16,
+    /// The beat clock's phase: it ticks BEAT_TICKS times every BEAT_SAMPLES
+    /// samples.
+    #[serde(skip)]
+    beat_phase: u8,
     /// Output, stereo interleaved, at OUTPUT_RATE.
     #[serde(skip)]
     pub out: Vec<i16>,
@@ -117,6 +127,7 @@ impl Sound {
             ctrl: vec![0; 0x400],
             ch: [Channel::default(); 16],
             beat_base: 0,
+            beat_phase: 0,
             out: Vec::new(),
             trace: None,
         };
@@ -254,7 +265,7 @@ impl Sound {
                             self.start(ch);
                         }
                     } else if self.ctrl[CHANNEL_STATUS] & mask != 0 {
-                        self.stop(ch);
+                        self.stop(ch, "cpu");
                     }
                 }
             }
@@ -294,6 +305,10 @@ impl Sound {
                     let mask = 1 << ch;
                     if changed & mask != 0 && data & mask != 0 {
                         self.ch[ch].ramp_frame = self.ramp_frames(ch);
+                        let (env, off, clock) = (self.edd(ch), self.reg(ch, ENVELOPE_LOOP_CTRL) >> 9, self.phase[ch << 4 | RAMP_DOWN_CLOCK]);
+                        if let Some(t) = &mut self.trace {
+                            t.push(format!("ch {ch:2} ramp down from env {env:02x}, step {off:02x}, clock {clock:x}"));
+                        }
                     }
                 }
             }
@@ -345,7 +360,11 @@ impl Sound {
         c.a36_prev = 0;
     }
 
-    fn stop(&mut self, ch: usize) {
+    fn stop(&mut self, ch: usize, why: &str) {
+        let env = self.edd(ch);
+        if let Some(t) = &mut self.trace {
+            t.push(format!("ch {ch:2} stop ({why}) env {env:02x}"));
+        }
         let mask = !(1u16 << ch);
         self.ctrl[CHANNEL_STATUS] &= mask;
         let m = self.reg(ch, MODE);
@@ -415,7 +434,7 @@ impl Sound {
             if tone != 0 && raw == 0xffff {
                 if tone == 1 {
                     self.ctrl[CHANNEL_STOP] |= 1 << ch;
-                    self.stop(ch);
+                    self.stop(ch, "end");
                     return false;
                 }
                 self.do_loop(ch);
@@ -429,7 +448,7 @@ impl Sound {
         } else if self.reg(ch, MODE) & 0x4000 != 0 {
             if tone != 0 && raw == 0xffff {
                 if tone == 1 {
-                    self.stop(ch);
+                    self.stop(ch, "end");
                     return false;
                 }
                 self.do_loop(ch);
@@ -442,7 +461,7 @@ impl Sound {
             if r == 0xffff {
                 if tone == 1 {
                     self.ctrl[CHANNEL_STOP] |= 1 << ch;
-                    self.stop(ch);
+                    self.stop(ch, "end");
                     return false;
                 }
                 self.do_loop(ch);
@@ -504,7 +523,7 @@ impl Sound {
             self.ch[ch].ramp_frame = self.ramp_frames(ch);
         } else {
             self.ctrl[CHANNEL_STOP] |= 1 << ch;
-            self.stop(ch);
+            self.stop(ch, "rampdown");
         }
     }
 
@@ -530,7 +549,7 @@ impl Sound {
                 }
                 if new == 0 {
                     self.ctrl[CHANNEL_STOP] |= 1 << ch;
-                    self.stop(ch);
+                    self.stop(ch, "envelope");
                     return;
                 }
             } else {
@@ -628,6 +647,11 @@ impl Sound {
     }
 
     fn beat_tick(&mut self) {
+        self.beat_phase += BEAT_TICKS;
+        if self.beat_phase < BEAT_SAMPLES {
+            return;
+        }
+        self.beat_phase -= BEAT_SAMPLES;
         if self.beat_base > 0 {
             self.beat_base -= 1;
         }

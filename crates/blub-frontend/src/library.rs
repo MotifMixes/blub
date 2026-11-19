@@ -13,8 +13,11 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 const EXTENSIONS: [&str; 3] = ["bin", "rom", "zip"];
 /// Folder depth scanned below each ROM folder.
 const MAX_DEPTH: usize = 3;
-/// Art: frames searched for the title screen (20 s), and how often to look.
+/// Art for unknown cartridges: frames searched for the title screen (20 s),
+/// after the console's own logo (the same on every cartridge), and how often
+/// to look.
 const ART_FRAMES: u64 = 1200;
+const ART_AFTER_LOGO: u64 = 450;
 const ART_EVERY: u64 = 20;
 /// Games' art made at once (each runs a machine on its own thread): all
 /// cores but two, so the first library scan is quick.
@@ -24,7 +27,7 @@ fn art_threads() -> usize {
 
 /// Where a game's art is cached (the suffix changes whenever the way art
 /// is made changes, so old pictures are made again).
-const ART_SUFFIX: &str = "-1.png";
+const ART_SUFFIX: &str = "-2.png";
 
 fn art_file(art_dir: &Path, key: &str) -> PathBuf {
     art_dir.join(format!("{key}{ART_SUFFIX}"))
@@ -89,21 +92,22 @@ impl Family {
     }
 }
 
-/// Known cartridges' titles, by CRC32 (the MAME software list's).
-const KNOWN: &[(u32, &str)] = &[
-    (0x908a_965d, "American Idol - Take the Stage"),
-    (0x393b_eea8, "Barbie Princess - Enchanted Sounds"),
-    (0x9136_a225, "Dora the Explorer - Musical Adventure"),
-    (0x12ef_ca09, "Holiday Wonderland"),
-    (0x6408_abb6, "Jammin' Jungle Safari"),
-    (0x632a_b0a3, "Jungle Boogie"),
-    (0xc5f4_c7eb, "Magical Melodies"),
-    (0xcca3_1d78, "Piano Favorites"),
-    (0xc15c_cdad, "Pop Hits"),
-    (0x00d5_97d3, "Rockin' Dance Party"),
-    (0xe16c_715e, "Scooby-Doo! Monster Mayhem"),
-    (0xc958_36fd, "Show Tunes"),
-    (0x4c00_4177, "The Wizard of Oz"),
+/// Known cartridges, by CRC32 (the MAME software list's): title, and the
+/// frame of the boot where its title screen is fully shown (for its art).
+const KNOWN: &[(u32, &str, u64)] = &[
+    (0x908a_965d, "American Idol - Take the Stage", 840),
+    (0x393b_eea8, "Barbie Princess - Enchanted Sounds", 720),
+    (0x9136_a225, "Dora the Explorer - Musical Adventure", 840),
+    (0x12ef_ca09, "Holiday Wonderland", 960),
+    (0x6408_abb6, "Jammin' Jungle Safari", 720),
+    (0x632a_b0a3, "Jungle Boogie", 900),
+    (0xc5f4_c7eb, "Magical Melodies", 720),
+    (0xcca3_1d78, "Piano Favorites", 840),
+    (0xc15c_cdad, "Pop Hits", 780),
+    (0x00d5_97d3, "Rockin' Dance Party", 900),
+    (0xe16c_715e, "Scooby-Doo! Monster Mayhem", 780),
+    (0xc958_36fd, "Show Tunes", 840),
+    (0x4c00_4177, "The Wizard of Oz", 960),
 ];
 
 pub struct Game {
@@ -329,15 +333,15 @@ pub fn read_cartridge(path: &Path) -> Option<Vec<u8>> {
 /// A game's title: from the known list, else its file name.
 pub fn title_of(path: &Path, cart: &[u8]) -> String {
     let crc = crc32fast::hash(cart);
-    match KNOWN.iter().find(|(c, _)| *c == crc) {
-        Some((_, name)) => name.to_string(),
+    match KNOWN.iter().find(|(c, ..)| *c == crc) {
+        Some((_, name, _)) => name.to_string(),
         None => path.file_stem().map_or_else(|| "Cartridge".into(), |s| s.to_string_lossy().replace('_', " ")),
     }
 }
 
 fn describe(path: &Path, cart: &[u8], key: String, art: Art) -> Game {
     let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let known = KNOWN.iter().any(|(c, _)| format!("{c:08x}") == key);
+    let known = KNOWN.iter().any(|(c, ..)| format!("{c:08x}") == key);
     let mut details = vec![("File", file), ("CRC32", key.clone())];
     if !known {
         details.push(("Dump", "Not in the known list".into()));
@@ -359,18 +363,28 @@ struct Shot {
     pixels: Vec<u32>,
 }
 
-/// Runs the game unseen and keeps its most colourful screen of the first
-/// `ART_FRAMES` (the title screen, with its art; menus are plainer).
+/// Runs the game unseen to its title screen: a known cartridge's frame,
+/// else the most colourful screen of the first `ART_FRAMES` after the
+/// console's logo (the title screen, with its art; menus are plainer).
 fn make_art(cart: &[u8]) -> Option<Shot> {
     use blub_piano::{SCREEN_H, SCREEN_W};
+    let crc = crc32fast::hash(cart);
+    let title_frame = KNOWN.iter().find(|(c, ..)| *c == crc).map(|k| k.2);
     let mut piano = blub_piano::Piano::new(cart);
     let mut frame = vec![0u32; SCREEN_W * SCREEN_H];
     let mut best: Option<(usize, Vec<u32>)> = None;
-    for n in 1..=ART_FRAMES {
+    for n in 1..=title_frame.map_or(ART_FRAMES, |f| f + 1) {
         piano.run_frame();
         // Its sound is not wanted (and would pile up).
         let _ = piano.take_audio();
-        if n % ART_EVERY != 0 {
+        if let Some(f) = title_frame {
+            if n == f + 1 {
+                piano.render(&mut frame);
+                return Some(Shot { pixels: frame });
+            }
+            continue;
+        }
+        if n < ART_AFTER_LOGO || n % ART_EVERY != 0 {
             continue;
         }
         piano.render(&mut frame);

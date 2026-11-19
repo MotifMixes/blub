@@ -10,7 +10,7 @@ Blub comes with **no games**. The I Can Play Piano has no system software of its
 
 ## Made with AI
 
-Blub is written almost entirely by an AI coding assistant (Anthropic's Claude), under the direction of its author. Blub shows a short note about this the first time it starts.
+Blub is written almost entirely by an AI coding assistant, under the direction of its author. Blub shows a short note about this the first time it starts.
 
 Blub is not affiliated with or endorsed by Fisher-Price or Mattel.
 

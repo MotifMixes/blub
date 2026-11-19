@@ -7,7 +7,9 @@
 //! (k0-k35) or a button (enter, home, up, down, ...) from that frame.
 //! PIANO_PPM_AT=frame,... also saves the picture at those frames
 //! (<out>.<frame>.ppm). PIANO_WAV=file.wav saves the sound. PIANO_KEYBOARD=1
-//! starts with the slider on Keyboard Mode (no TV picture).
+//! starts with the slider on Keyboard Mode (no TV picture). PIANO_SOUNDLOG=1
+//! prints sound channel starts and stops with their frame, PIANO_PORTLOG=1
+//! changes to the ports' outputs.
 
 use blub_piano::{Button, Piano, SCREEN_H, SCREEN_W};
 use std::io::Write;
@@ -53,6 +55,14 @@ fn main() {
         .collect();
     let wav = std::env::var("PIANO_WAV").ok();
     let mut audio = Vec::new();
+    let sound_log = std::env::var("PIANO_SOUNDLOG").is_ok_and(|v| v == "1");
+    if sound_log {
+        piano.trace_sound();
+    }
+    let port_log = std::env::var("PIANO_PORTLOG").is_ok_and(|v| v == "1");
+    if port_log {
+        piano.trace_ports();
+    }
     let mut frame = vec![0u32; SCREEN_W * SCREEN_H];
     let start = Instant::now();
     for n in 0..frames {
@@ -67,6 +77,12 @@ fn main() {
         }
         piano.run_frame();
         audio.extend(piano.take_audio());
+        for line in piano.take_sound_log() {
+            println!("{n:5} {line}");
+        }
+        for line in piano.take_port_log() {
+            println!("{n:5} {line}");
+        }
         if shots.contains(&n) {
             piano.render(&mut frame);
             save_ppm(&format!("{out}.{n}.ppm"), &frame);
@@ -83,6 +99,16 @@ fn main() {
         piano.cpu.lpc(),
         piano.instructions()
     );
+    if sound_log {
+        let io = piano.io_regs();
+        println!("io 3d10..3d2f: {:04x?}", &io[0x10..0x30]);
+        let v = piano.video_regs();
+        println!("video 10..2f: {:04x?}", &v[0x10..0x30]);
+        for (n, sp) in piano.sprite_regs().chunks(4).enumerate().filter(|(_, s)| s[0] != 0) {
+            println!("sprite {n:3}: {:04x?}", sp);
+        }
+        println!("video 30..43: {:04x?} 62/63 {:04x} {:04x}", &v[0x30..0x44], v[0x62], v[0x63]);
+    }
     piano.render(&mut frame);
     save_ppm(out, &frame);
     if let Some(path) = wav {

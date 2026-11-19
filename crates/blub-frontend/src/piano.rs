@@ -119,9 +119,9 @@ pub fn default_keys() -> Vec<(KeyCode, Input)> {
         .collect()
 }
 
-/// The keys held by a MIDI keyboard: notes outside the piano's three
-/// octaves fold onto its keys (`blub_piano::midi_key`), so a key stays down
-/// while any note on it is held.
+/// The keys held by a MIDI keyboard (`blub_piano::midi_key`; notes outside
+/// the piano's three octaves play nothing). A key stays down while any note
+/// on it is held (the same note twice, from two sources).
 #[derive(Debug, Clone)]
 pub struct MidiKeys {
     held: [u8; KEYS],
@@ -135,10 +135,11 @@ impl Default for MidiKeys {
 
 impl MidiKeys {
     /// Note `note` pressed or let go, moved by `octaves` first; the key and
-    /// whether it is now down, when that changed.
+    /// whether it is now down, when that changed (never for a note the
+    /// piano doesn't have).
     pub fn note(&mut self, note: u8, on: bool, octaves: i32) -> Option<(usize, bool)> {
-        let note = (note as i32 + 12 * octaves).clamp(0, 127) as u8;
-        let key = blub_piano::midi_key(note);
+        let note = u8::try_from(note as i32 + 12 * octaves).ok()?;
+        let key = blub_piano::midi_key(note)?;
         let n = &mut self.held[key];
         let before = *n > 0;
         if on {
@@ -197,16 +198,22 @@ mod tests {
     }
 
     #[test]
-    fn midi_notes_folding_onto_one_key_hold_it_together() {
+    fn midi_notes_play_the_piano_s_keys_only() {
         let mut m = MidiKeys::default();
-        // Middle C (60) is key 19; C an octave up and down fold onto keys
-        // 31 and 7, but C6 (84) folds onto 31 too.
+        // Middle C (60) is key 19, C5 (72) key 31; F2 (41) and E5 (76) are
+        // the ends, and notes past them play nothing.
         assert_eq!(m.note(60, true, 0), Some((19, true)));
         assert_eq!(m.note(72, true, 0), Some((31, true)));
-        assert_eq!(m.note(84, true, 0), None, "already down");
-        assert_eq!(m.note(72, false, 0), None, "C6 still holds it");
-        assert_eq!(m.note(84, false, 0), Some((31, false)));
+        assert_eq!((m.note(41, true, 0), m.note(41, false, 0)), (Some((0, true)), Some((0, false))));
+        assert_eq!((m.note(76, true, 0), m.note(76, false, 0)), (Some((35, true)), Some((35, false))));
+        for note in [0, 40, 77, 84, 127] {
+            assert_eq!(m.note(note, true, 0), None, "{note} has no key");
+        }
+        assert_eq!(m.note(72, true, 0), None, "already down");
+        assert_eq!(m.note(72, false, 0), None, "still held once");
+        assert_eq!(m.note(72, false, 0), Some((31, false)));
         assert_eq!(m.note(60, true, 1), Some((31, true)), "an octave up");
+        assert_eq!(m.note(76, true, 1), None, "an octave up, past the top");
         assert_eq!(m.release_all(), vec![19, 31]);
         assert_eq!(m.note(60, false, 0), None, "already let go");
     }

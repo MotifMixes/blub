@@ -81,20 +81,34 @@ def version():
     return m.group(1)
 
 
+# Release builds go to their own folder: their flags differ from everyday
+# builds', which would otherwise all be rebuilt.
+RELEASE_TARGET = ROOT / 'target' / 'release-build'
+
+
+def release_env():
+    """The build's environment: the build machine's home folder and the
+    repository's path are written as ~ and blub in the program (Rust keeps
+    source paths for panic messages), so no user path is inside."""
+    home = Path.home()
+    flags = [f'--remap-path-prefix={home}=~', f'--remap-path-prefix={ROOT}=blub']
+    return dict(os.environ, CARGO_TARGET_DIR=str(RELEASE_TARGET), CARGO_ENCODED_RUSTFLAGS=''.join(flags))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--skip-build', action='store_true')
     a = ap.parse_args()
     ver = version()
     if not a.skip_build:
-        subprocess.run(['cargo', 'build', '--release', '-j', '8', '-p', 'blub-desktop'], cwd=ROOT, check=True)
+        subprocess.run(['cargo', 'build', '--release', '-j', '8', '-p', 'blub-desktop'], cwd=ROOT, check=True, env=release_env())
     name = f'Blub-{ver}-windows-x64'
     stage = DIST / name
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     for exe, built in PROGRAMS.items():
-        src = Path(os.environ.get('CARGO_TARGET_DIR', ROOT / 'target')) / 'release' / built
+        src = RELEASE_TARGET / 'release' / built
         if not src.exists():
             sys.exit(f'missing {src} (build first)')
         shutil.copy2(src, stage / exe)

@@ -23,9 +23,9 @@ looks and works the same way.
 > [!IMPORTANT]
 > ## This project was made with AI
 >
-> **Blub is written almost entirely by an AI coding assistant** (Anthropic's Claude, through Claude Code), working
-> under my direction. Please judge it by its results. Blub is not affiliated with or endorsed by Fisher-Price or
-> Mattel. Fisher-Price and I Can Play Piano are their trademarks.
+> **Blub is written almost entirely by an AI coding assistant**, working under my direction. Please judge it by its
+> results. Blub is not affiliated with or endorsed by Fisher-Price or Mattel. Fisher-Price and I Can Play Piano are
+> their trademarks.
 
 ## You need your own dumps
 
@@ -36,7 +36,9 @@ your own cartridge is all you need.
 
 | Console | State |
 |---|---|
-| **I Can Play Piano** | Plays: title screens, menus, songs and games, music and voices. The buttons follow MAME's `icanpian` driver (what some of them do is unverified). |
+| **I Can Play Piano** | Plays: all 13 known cartridges reach their title screens, menus, songs and Freestyle, with music and voices; Keyboard Mode plays every key. The Games menus are less tested. The buttons follow MAME's `icanpian` driver (what some of them do is unverified). |
+
+What Blub knows about the hardware, and how it was found: [docs/hardware.md](docs/hardware.md).
 
 ## Features
 
@@ -44,8 +46,9 @@ The same as Ribbit's: a game library with title-screen art, favourites and folde
 **rewind** (hold <code>`</code>), fast-forward (hold Tab) and speed; pause, reset; screenshots (F12) and **video
 recording** (F8: FFmpeg, Windows' own H.264, or AVI); AI upscaling (ArtCNN, Anime4K, ScaleFX) and other scalers;
 fullscreen (F11); per-game settings; controllers; Discord presence; the update check; and the **console view**
-(F7): the picture on a TV above a drawing of the piano, whose 36 keys and buttons can be played with the mouse and
-light up while held from any source.
+(F7): the picture on a TV above a drawing of the piano after the real one (colour-coded keys, the panel's buttons,
+the hands' lights), its keys lined up under the songs' on-screen keyboard. The keys and buttons can be played with
+the mouse and light up while held from any source.
 
 ## Controls
 
@@ -71,7 +74,7 @@ changed in **Input → Key bindings…**):
 | Metronome | Numpad 8 | |
 
 **MIDI:** plug in a MIDI keyboard and start a game: Blub opens the first MIDI input it finds (or the one chosen in
-**Input → MIDI input**) and its keys play the piano's. Notes outside the piano's three octaves fold into them; an
+**Input → MIDI input**) and its keys play the piano's. Only the piano's own three octaves (F2 to E5) play: notes outside them do nothing; an
 octave shift (-2 to +2) is in the same menu. **Input → Keyboard Mode** moves the console's TV / Keyboard Mode slider.
 
 Blub's own keys: Esc pause, Tab fast-forward, <code>`</code> rewind, F5 / F9 quick save / load, Ctrl+R reset,
