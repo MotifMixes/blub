@@ -60,12 +60,29 @@ pub struct StartOptions {
     pub keep_screen_on: Option<fn(bool)>,
 }
 
+/// An input reaching the machine: the piano's keys and buttons, the
+/// guitar's frets and buttons held; its strings plucked when pressed (the
+/// cartridges play a string on a short pulse: `Piano::pluck`).
+fn apply(p: &mut blub_piano::Piano, input: Input, down: bool) {
+    match input {
+        Input::Key(k) => p.key(k as usize, down),
+        Input::Button(b) => p.button(b, down),
+        Input::Fret(string, fret) => p.fret(string as usize, fret as usize, down),
+        Input::String(string) if down => p.pluck(string as usize),
+        Input::StrumAll if down => (0..blub_piano::STRINGS).for_each(|string| p.pluck(string)),
+        Input::String(_) | Input::StrumAll => {}
+        Input::Guitar(b) => p.guitar_button(b, down),
+    }
+}
+
 struct Session {
     /// The cartridge played.
     cart_path: PathBuf,
     /// The machine, running on its own thread.
     emu: Emu,
     title: String,
+    /// The console the cartridge is for (`blub_piano::detect`).
+    model: blub_piano::Model,
     /// When play started (Unix seconds), for Discord's timer.
     started: u64,
     /// Prefix for this game's save-state files.
@@ -352,7 +369,7 @@ impl App {
     fn open_cart(&mut self, path: PathBuf) {
         let Some(cart) = crate::library::read_cartridge(&path) else {
             let explain = if path.is_file() {
-                "This isn't an I Can Play Piano cartridge dump: those are 8 MB .bin files (or zipped)."
+                "This isn't an I Can Play Piano or I Can Play Guitar cartridge dump: those are 8 MB .bin files (or zipped)."
             } else {
                 "The file couldn't be read. It may have been moved or deleted."
             };
@@ -364,15 +381,17 @@ impl App {
         let state_key = format!("piano-{:08x}", crc32fast::hash(&cart));
         let mut piano = blub_piano::Piano::new(&cart);
         piano.set_keyboard_mode(self.settings.keyboard_mode);
+        let model = piano.model();
         let emu = Emu::start(piano);
         emu.set_audio_sink(self.audio.as_ref().map(|a| a.sink()));
         self.settings.add_recent(&path);
         self.save_settings();
-        tracing::info!(target: "blub::boot", title = %title, "game started");
+        tracing::info!(target: "blub::boot", title = %title, console = model.name(), "game started");
         self.session = Some(Session {
             cart_path: path,
             emu,
             title,
+            model,
             started: now_unix(),
             state_key,
             rewind: Default::default(),
@@ -475,21 +494,26 @@ impl App {
 
     /// The console view's layout, when it is on and a game runs.
     fn view_layout(&self) -> Option<crate::console_view::Layout> {
-        (self.settings.console_view && self.session.is_some()).then(crate::console_view::layout)
+        let s = self.session.as_ref()?;
+        self.settings.console_view.then(|| crate::console_view::layout(s.model == blub_piano::Model::Guitar))
+    }
+
+    /// The game running is the guitar's.
+    fn guitar(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| s.model == blub_piano::Model::Guitar)
     }
 
     /// A key or button pressed or let go by one source (the machine sees it
     /// down while any source holds it).
+    /// The controllers' piano buttons (gamepad.rs, Android) are the
+    /// guitar's counterparts when the guitar plays (`Input::on_guitar`).
     fn press(&mut self, source: Source, input: Input, down: bool) {
+        let input = if self.guitar() { input.on_guitar() } else { input };
         let Some(state) = self.held.set(source, input, down) else {
             return;
         };
         if let Some(s) = &self.session {
-            let mut p = s.emu.lock();
-            match input {
-                Input::Key(k) => p.key(k as usize, state),
-                Input::Button(b) => p.button(b, state),
-            }
+            apply(&mut s.emu.lock(), input, state);
         }
     }
 
@@ -497,11 +521,7 @@ impl App {
     fn release(&mut self, source: Source) {
         for i in self.held.release(source) {
             if let Some(s) = &self.session {
-                let mut p = s.emu.lock();
-                match i {
-                    Input::Key(k) => p.key(k as usize, false),
-                    Input::Button(b) => p.button(b, false),
-                }
+                apply(&mut s.emu.lock(), i, false);
             }
         }
     }
@@ -1297,7 +1317,7 @@ impl App {
         if ctrl && pressed {
             return;
         }
-        if let Some(input) = self.settings.input_for(code) {
+        if let Some(input) = self.settings.input_for(code, self.guitar()) {
             self.press(Source::Keyboard, input, pressed);
         }
     }
@@ -1435,6 +1455,7 @@ impl App {
             record_dir: self.settings.record_folder.clone().unwrap_or_else(|| self.record_default.clone()),
             midi_ports,
             midi_connected,
+            guitar: self.session.as_ref().is_some_and(|s| s.model == blub_piano::Model::Guitar),
         };
         let mut actions = Vec::new();
         let mut area = egui::Rect::NOTHING;
@@ -1461,7 +1482,7 @@ impl App {
         }
         self.discord.set(match &self.session {
             _ if !self.settings.discord_presence => crate::discord::Presence::Off,
-            Some(s) => crate::discord::Presence::playing(&s.title, CONSOLE, s.started),
+            Some(s) => crate::discord::Presence::playing(&s.title, s.model.name(), s.started),
             None => crate::discord::Presence::Browsing,
         });
         let (ui_state, settings, library) = (&mut self.ui, &mut self.settings, &mut self.library);
@@ -1589,7 +1610,7 @@ impl App {
     fn details_lines(&self) -> Vec<(&'static str, String)> {
         let d = &self.details;
         let ms = |t: Duration| t.as_secs_f64() * 1e3;
-        let mut lines = vec![("Blub", env!("CARGO_PKG_VERSION").to_string()), ("Console", CONSOLE.to_string())];
+        let mut lines = vec![("Blub", env!("CARGO_PKG_VERSION").to_string()), ("Console", self.session.as_ref().map_or(CONSOLE, |s| s.model.name()).to_string())];
         let rate = |v: f64| if d.measured { format!("{v:.0}") } else { "…".into() };
         lines.push(("Game fps", rate(d.shown.0)));
         lines.push(("Window fps", rate(d.shown.1)));

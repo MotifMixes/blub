@@ -54,6 +54,9 @@ pub struct Settings {
     /// it plays (`piano::Input::name`: "Key0".."Key35", "Enter"...). A key
     /// plays one input; an input may have several keys.
     pub keys: BTreeMap<String, String>,
+    /// The same for the guitar's inputs ("Fret1.3", "String1", "GuitarUp"...):
+    /// a key can play a piano input and a guitar one.
+    pub guitar_keys: BTreeMap<String, String>,
     /// The MIDI input port: "auto" (the first one there is), "none", or a
     /// port's name.
     pub midi_input: String,
@@ -121,6 +124,7 @@ impl Default for Settings {
             muted: false,
             speed_percent: 100,
             keys: default_keys(),
+            guitar_keys: default_guitar_keys(),
             midi_input: "auto".into(),
             midi_octave_shift: 0,
             keyboard_mode: false,
@@ -149,6 +153,11 @@ impl Default for Settings {
 /// The piano's default keys (`piano::default_keys`), by name.
 pub fn default_keys() -> BTreeMap<String, String> {
     crate::piano::default_keys().into_iter().map(|(k, i)| (key_name(k), i.name())).collect()
+}
+
+/// The guitar's default keys (`piano::default_guitar_keys`), by name.
+pub fn default_guitar_keys() -> BTreeMap<String, String> {
+    crate::piano::default_guitar_keys().into_iter().map(|(k, i)| (key_name(k), i.name())).collect()
 }
 
 /// A key's name as short as a keycap shows it ("ArrowUp" -> "↑",
@@ -319,23 +328,32 @@ impl Settings {
         Ok(())
     }
 
-    /// The piano input a key plays, if any.
-    pub fn input_for(&self, key: KeyCode) -> Option<Input> {
-        self.keys.get(&key_name(key)).and_then(|i| Input::from_name(i))
+    /// The input a key plays on the piano, or on the guitar (`guitar`), if
+    /// any.
+    pub fn input_for(&self, key: KeyCode, guitar: bool) -> Option<Input> {
+        let keys = if guitar { &self.guitar_keys } else { &self.keys };
+        keys.get(&key_name(key)).and_then(|i| Input::from_name(i)).filter(|i| i.is_guitar() == guitar)
+    }
+
+    /// The bindings `input`'s console has.
+    fn keys_of(&mut self, input: Input) -> &mut BTreeMap<String, String> {
+        if input.is_guitar() { &mut self.guitar_keys } else { &mut self.keys }
     }
 
     /// The keys that play `input` (names), in key-name order.
     pub fn keys_for(&self, input: Input) -> Vec<&str> {
         let name = input.name();
-        self.keys.iter().filter(|(_, i)| **i == name).map(|(k, _)| k.as_str()).collect()
+        let keys = if input.is_guitar() { &self.guitar_keys } else { &self.keys };
+        keys.iter().filter(|(_, i)| **i == name).map(|(k, _)| k.as_str()).collect()
     }
 
     /// `key` alone plays `input` from now (its other keys let go of it, and
-    /// the key stops playing whatever it played).
+    /// the key stops playing whatever it played on that console).
     pub fn bind(&mut self, input: Input, key: KeyCode) {
         let name = input.name();
-        self.keys.retain(|_, i| *i != name);
-        self.keys.insert(key_name(key), name);
+        let keys = self.keys_of(input);
+        keys.retain(|_, i| *i != name);
+        keys.insert(key_name(key), name);
     }
 
     pub fn add_recent(&mut self, cart: &Path) {
@@ -369,14 +387,17 @@ mod tests {
         let s = Settings::default();
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
-        assert_eq!(s.input_for(KeyCode::KeyZ), Some(Input::Key(2)));
+        assert_eq!(s.input_for(KeyCode::KeyZ, false), Some(Input::Key(2)));
+        assert_eq!(s.input_for(KeyCode::KeyZ, true), Some(Input::Fret(5, 4)));
         assert_eq!(s.keys_for(Input::Button(Button::Home)), ["Backspace", "Home"]);
         let mut s = s;
         s.bind(Input::Button(Button::Home), KeyCode::KeyZ);
-        assert_eq!(s.input_for(KeyCode::KeyZ), Some(Input::Button(Button::Home)));
+        assert_eq!(s.input_for(KeyCode::KeyZ, false), Some(Input::Button(Button::Home)));
+        assert_eq!(s.input_for(KeyCode::KeyZ, true), Some(Input::Fret(5, 4)), "the guitar's keys stay");
         assert_eq!(s.keys_for(Input::Button(Button::Home)), ["KeyZ"], "the new key alone");
         assert!(s.keys_for(Input::Key(2)).is_empty(), "the key moved to Home");
         assert!(default_keys().keys().all(|k| key_from_name(k).is_some()));
+        assert!(default_guitar_keys().keys().all(|k| key_from_name(k).is_some()));
         assert_eq!(
             (cap_text("ArrowUp").as_str(), cap_text("KeyZ").as_str(), cap_text("Numpad7").as_str()),
             ("⏶", "Z", "7")

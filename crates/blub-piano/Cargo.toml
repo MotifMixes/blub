@@ -1,6 +1,6 @@
 [package]
 name = "blub-piano"
-description = "The Fisher-Price I Can Play Piano (Sunplus SPG24x)"
+description = "The Fisher-Price I Can Play Piano and I Can Play Guitar (Sunplus SPG24x)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

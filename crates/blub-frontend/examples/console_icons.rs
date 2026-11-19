@@ -20,13 +20,14 @@ mod library {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Hardware {
         Piano,
+        Guitar,
     }
 }
 
 use library::Hardware;
 use std::collections::HashMap;
 
-const ALL: [Hardware; 1] = [Hardware::Piano];
+const ALL: [Hardware; 2] = [Hardware::Piano, Hardware::Guitar];
 
 struct Canvas {
     w: usize,
@@ -88,12 +89,13 @@ impl Canvas {
 
 fn main() {
     let out = std::path::PathBuf::from(std::env::args().nth(1).expect("usage: console_icons <out.png>"));
-    let (row, w) = (140.0f32, 620.0f32);
+    let (row, w) = (140.0f32, 1200.0f32);
     // The console view under the icons.
     let view = egui::vec2(600.0, 610.0);
     let icons_h = row * ALL.len() as f32;
     let h = icons_h + view.y + 12.0;
     let keys = piano::default_keys();
+    let guitar_keys = piano::default_guitar_keys();
     let ctx = egui::Context::default();
     let mut textures: HashMap<egui::TextureId, egui::ColorImage> = HashMap::new();
     let mut canvas = Canvas { w: w as usize, h: h as usize, px: vec![[0.11, 0.12, 0.14, 1.0]; (w * h) as usize] };
@@ -119,7 +121,7 @@ fn main() {
             let cap = |i: piano::Input| keys.iter().find(|(_, x)| *x == i).map(|(k, _)| blub_frontend::settings::cap_text(&format!("{k:?}")));
             let none = |_: piano::Input| String::new();
             let lit = console_view::Lit { pressed: &held, hands: (false, true), cap: &cap, show_caps: true, keys: &none, whole_pixels: false };
-            let layout = console_view::layout();
+            let layout = console_view::layout(false);
             let (shapes, screen) = console_view::capture_shapes(&layout, (view.x as u32, view.y as u32), &lit, ui.ctx());
             let at = egui::vec2(6.0, icons_h + 6.0);
             p.extend(shapes.into_iter().map(|mut s| {
@@ -127,6 +129,19 @@ fn main() {
                 s
             }));
             p.rect_filled(screen.translate(at), 0.0, egui::Color32::from_rgb(90, 60, 160));
+            // The guitar's, beside it (a fret, a string and Enter held).
+            let held = |i: piano::Input| matches!(i, piano::Input::Fret(5, 3) | piano::Input::String(5) | piano::Input::Guitar(blub_piano::GuitarButton::Enter));
+            let gcap = |i: piano::Input| guitar_keys.iter().find(|(_, x)| *x == i).map(|(k, _)| blub_frontend::settings::cap_text(&format!("{k:?}")));
+            let lit = console_view::Lit { pressed: &held, hands: (false, false), cap: &gcap, show_caps: true, keys: &none, whole_pixels: false };
+            let layout = console_view::layout(true);
+            let size = ((view.y * layout.aspect) as u32, view.y as u32);
+            let (shapes, screen) = console_view::capture_shapes(&layout, size, &lit, ui.ctx());
+            let at = egui::vec2(view.x + 18.0, icons_h + 6.0);
+            p.extend(shapes.into_iter().map(|mut s| {
+                s.translate(at);
+                s
+            }));
+            p.rect_filled(screen.translate(at), 0.0, egui::Color32::from_rgb(160, 60, 60));
         });
         for (id, deltas) in &full.textures_delta.set {
             for delta in deltas.iter() {

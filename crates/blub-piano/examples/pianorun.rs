@@ -1,22 +1,45 @@
-//! Runs an I Can Play Piano cartridge for a number of frames and saves the
-//! last picture.
+//! Runs an I Can Play Piano or I Can Play Guitar cartridge (told apart by
+//! `blub_piano::detect`) for a number of frames and saves the last picture.
 //!
 //! pianorun <cart.bin> <frames> <out.ppm>
 //!
-//! PIANO_INPUT=frame:what[:u];... presses (or with `u` releases) a key
-//! (k0-k35) or a button (enter, home, up, down, ...) from that frame.
+//! PIANO_INPUT=frame:what[:u];... presses (or with `u` releases) an input
+//! from that frame. On the piano: a key (k0-k35) or a button (enter, home,
+//! scrollup, ...). On the guitar: a fret (f<string>.<fret>, f1.1-f6.12;
+//! string 1 is the high E), a pluck of a string (s1-s6) or a button
+//! (up, down, left, right, enter, home, pause). On either, a raw scan line
+//! (a<scan>.<bit> on port A, c<scan>.<bit> on port C).
 //! PIANO_PPM_AT=frame,... also saves the picture at those frames
 //! (<out>.<frame>.ppm). PIANO_WAV=file.wav saves the sound. PIANO_KEYBOARD=1
 //! starts with the slider on Keyboard Mode (no TV picture). PIANO_SOUNDLOG=1
 //! prints sound channel starts and stops with their frame, PIANO_PORTLOG=1
 //! changes to the ports' outputs.
 
-use blub_piano::{Button, Piano, SCREEN_H, SCREEN_W};
+use blub_piano::{Button, GuitarButton, Model, Piano, SCREEN_H, SCREEN_W};
 use std::io::Write;
 use std::time::Instant;
 
 fn button(name: &str) -> Option<Button> {
     Button::ALL.into_iter().find(|b| format!("{b:?}").eq_ignore_ascii_case(name))
+}
+
+fn guitar_button(name: &str) -> Option<GuitarButton> {
+    GuitarButton::ALL.into_iter().find(|b| format!("{b:?}").eq_ignore_ascii_case(name))
+}
+
+/// A guitar fret, `f<string>.<fret>` (string 1-6): (string 0-5, fret).
+fn fret(what: &str) -> Option<(usize, usize)> {
+    let (s, f) = what.strip_prefix('f')?.split_once('.')?;
+    let (s, f): (usize, usize) = (s.parse().ok()?, f.parse().ok()?);
+    (1..=6).contains(&s).then_some((s - 1, f))
+}
+
+/// A raw scan line: `a<group>.<bit>` or `c<group>.<bit>` (port A or C).
+fn raw_line(what: &str) -> Option<(char, (usize, u16))> {
+    let port = what.chars().next()?;
+    let (g, bit) = what.get(1..)?.split_once('.')?;
+    let (g, bit): (usize, u32) = (g.parse().ok()?, bit.parse().ok()?);
+    ((port == 'a' || port == 'c') && g < 6 && bit < 16).then_some((port, (g, 1 << bit)))
 }
 
 fn save_ppm(path: &str, frame: &[u32]) {
@@ -37,7 +60,8 @@ fn main() {
         piano.set_keyboard_mode(true);
         piano.reset();
     }
-    println!("reset: pc {:06x}", piano.cpu.lpc());
+    let guitar = piano.model() == Model::Guitar;
+    println!("{}; reset: pc {:06x}", piano.model().name(), piano.cpu.lpc());
     let mut input: Vec<(u64, String, bool)> = std::env::var("PIANO_INPUT")
         .unwrap_or_default()
         .split(';')
@@ -63,13 +87,28 @@ fn main() {
     if port_log {
         piano.trace_ports();
     }
+    let mut raw = [(0u16, 0u16); 6];
     let mut frame = vec![0u32; SCREEN_W * SCREEN_H];
     let start = Instant::now();
     for n in 0..frames {
         for (_, what, down) in input.iter().filter(|i| i.0 == n) {
-            if let Some(k) = what.strip_prefix('k').and_then(|k| k.parse().ok()) {
+            if let Some((port, line)) = raw_line(what) {
+                let (g, bit) = line;
+                let (a, c) = &mut raw[g];
+                let v = if port == 'a' { a } else { c };
+                if *down { *v |= bit } else { *v &= !bit }
+                piano.set_scan_lines(g, raw[g].0, raw[g].1);
+            } else if guitar && let Some((string, f)) = fret(what) {
+                piano.fret(string, f, *down);
+            } else if guitar && let Some(s) = what.strip_prefix('s').and_then(|s| s.parse::<usize>().ok()) {
+                if *down {
+                    piano.pluck(s.wrapping_sub(1));
+                }
+            } else if guitar && let Some(b) = guitar_button(what) {
+                piano.guitar_button(b, *down);
+            } else if !guitar && let Some(k) = what.strip_prefix('k').and_then(|k| k.parse().ok()) {
                 piano.key(k, *down);
-            } else if let Some(b) = button(what) {
+            } else if !guitar && let Some(b) = button(what) {
                 piano.button(b, *down);
             } else {
                 eprintln!("unknown input {what}");

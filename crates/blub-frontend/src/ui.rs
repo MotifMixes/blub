@@ -108,6 +108,8 @@ pub struct Info {
     /// The MIDI input ports there are, and the one open now.
     pub midi_ports: Vec<String>,
     pub midi_connected: Option<String>,
+    /// The game running is an I Can Play Guitar one.
+    pub guitar: bool,
 }
 
 /// Something that went wrong, as the error card shows it.
@@ -126,6 +128,9 @@ pub struct UiState {
     pub show_controls: bool,
     pub show_about: bool,
     pub show_status: bool,
+    /// The key bindings and controls windows show the guitar's (set to the
+    /// running game's console; chosen in the windows when none runs).
+    pub controls_guitar: bool,
     /// Waiting for a key to bind to this input.
     pub capturing: Option<Input>,
     pub browser: Browser,
@@ -818,7 +823,8 @@ fn menus(ui: &mut egui::Ui, st: &mut UiState, settings: &mut Settings, info: &In
             .checkbox(&mut settings.keyboard_mode, "Keyboard Mode (slider)")
             .on_hover_text(
                 "The piano's TV / Keyboard Mode slider. Keyboard Mode: no TV picture, the keys play notes through \
-                 the speaker. Off: TV Mode, the games. Applies at once.",
+                 the speaker. Off: TV Mode, the games. On the guitar, its switch for playing without the TV. \
+                 Applies at once.",
             )
             .changed()
         {
@@ -1950,11 +1956,11 @@ fn empty_library(ui: &mut egui::Ui, settings: &Settings, actions: &mut Vec<Actio
         ui.add_space(8.0);
         let (head, body) = if settings.rom_folders.is_empty() {
             (
-                "Where are your I Can Play Piano cartridges?",
+                "Where are your I Can Play cartridges?",
                 "Choose the folder with your cartridge dumps (8 MB .bin files). Blub looks there and in its subfolders.",
             )
         } else {
-            ("No cartridges found yet", "Blub looked for I Can Play Piano cartridge dumps (8 MB .bin or .rom, or zipped) in the folders above.")
+            ("No cartridges found yet", "Blub looked for I Can Play Piano and Guitar cartridge dumps (8 MB .bin or .rom, or zipped) in the folders above.")
         };
         ui.label(egui::RichText::new(head).size(24.0).strong().color(egui::Color32::WHITE));
         ui.add_space(6.0);
@@ -2517,7 +2523,7 @@ fn keys_text(settings: &Settings, input: Input) -> String {
 }
 
 /// The controller layout (gamepad.rs), for the Controls window.
-const PAD_LAYOUT: [(&str, &str); 8] = [
+const PAD_LAYOUT: [(&str, &str); 9] = [
     ("Up / Down", "D-pad / left stick"),
     ("Enter", "A"),
     ("Home", "B"),
@@ -2526,11 +2532,42 @@ const PAD_LAYOUT: [(&str, &str); 8] = [
     ("Change instrument", "X"),
     ("Hands", "Y"),
     ("Menu", "Guide"),
+    ("Guitar: left / right", "LB / RB"),
 ];
+
+/// The piano or guitar choice atop the key bindings and controls windows
+/// (the running game's console while one runs).
+fn console_choice(ui: &mut egui::Ui, st: &mut UiState, info: &Info) {
+    if info.running {
+        st.controls_guitar = info.guitar;
+        ui.label(egui::RichText::new(if info.guitar { "I Can Play Guitar" } else { "I Can Play Piano" }).strong());
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut st.controls_guitar, false, "Piano");
+        ui.selectable_value(&mut st.controls_guitar, true, "Guitar");
+    });
+}
+
+/// The guitar's frets with their keys, a line per fret (string 6, the low
+/// E, first, as the strings lie on the keyboard).
+fn guitar_fret_lines(settings: &Settings) -> Vec<(String, String)> {
+    (1..=blub_piano::FRETS)
+        .map(|fret| {
+            let keys: Vec<String> = (0..blub_piano::STRINGS)
+                .rev()
+                .filter(|&s| blub_piano::has_fret(s, fret))
+                .map(|s| settings.keys_for(Input::Fret(s as u8, fret as u8)).first().map_or("—".to_string(), |k| settings::cap_text(k)))
+                .collect();
+            (format!("Fret {fret}"), keys.join(" "))
+        })
+        .collect()
+}
 
 fn dialogs(ctx: &egui::Context, st: &mut UiState, settings: &mut Settings, info: &Info, actions: &mut Vec<Action>) {
     let mut open = st.show_bindings;
     egui::Window::new("Key bindings").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        console_choice(ui, st, info);
         ui.label("Click a key or button, then press the new key on your keyboard (Esc: keep it).");
         ui.separator();
         let mut row = |ui: &mut egui::Ui, input: Input, label: String| {
@@ -2540,7 +2577,30 @@ fn dialogs(ctx: &egui::Context, st: &mut UiState, settings: &mut Settings, info:
                 st.capturing = Some(input);
             }
         };
+        let guitar = st.controls_guitar;
         egui::ScrollArea::vertical().max_height(ctx.content_rect().height() * 0.6).show(ui, |ui| {
+            if guitar {
+                ui.label(egui::RichText::new("Buttons and strings").strong());
+                egui::Grid::new("guitar button bindings").num_columns(2).spacing([24.0, 6.0]).show(ui, |ui| {
+                    for input in Input::guitar_buttons() {
+                        row(ui, input, input.label());
+                        ui.end_row();
+                    }
+                });
+                ui.separator();
+                ui.label(egui::RichText::new("Fret buttons").strong());
+                egui::Grid::new("fret bindings").num_columns(4).spacing([24.0, 6.0]).show(ui, |ui| {
+                    let frets: Vec<Input> = Input::guitar().filter(|i| matches!(i, Input::Fret(..))).collect();
+                    let half = frets.len().div_ceil(2);
+                    for k in 0..half {
+                        for &input in [frets.get(k), frets.get(k + half)].into_iter().flatten() {
+                            row(ui, input, input.label());
+                        }
+                        ui.end_row();
+                    }
+                });
+                return;
+            }
             ui.label(egui::RichText::new("Buttons").strong());
             egui::Grid::new("button bindings").num_columns(2).spacing([24.0, 6.0]).show(ui, |ui| {
                 for input in Input::buttons() {
@@ -2567,7 +2627,11 @@ fn dialogs(ctx: &egui::Context, st: &mut UiState, settings: &mut Settings, info:
         });
         ui.separator();
         if ui.button("Restore defaults").clicked() {
-            settings.keys = settings::default_keys();
+            if guitar {
+                settings.guitar_keys = settings::default_guitar_keys();
+            } else {
+                settings.keys = settings::default_keys();
+            }
             st.capturing = None;
             actions.push(Action::SettingsChanged);
         }
@@ -2577,33 +2641,60 @@ fn dialogs(ctx: &egui::Context, st: &mut UiState, settings: &mut Settings, info:
         st.capturing = None;
     }
 
-    egui::Window::new("Controls").open(&mut st.show_controls).collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.label(egui::RichText::new("The piano's keys").strong());
-        egui::Grid::new("piano keys").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
-            for (octave, name) in ["Low octave (F2 to E3)", "Middle octave (F3 to E4)", "High octave (F4 to E5)"].into_iter().enumerate() {
-                let keys: Vec<String> = (0..12)
-                    .map(|k| settings.keys_for(Input::Key((octave * 12 + k) as u8)).first().map_or("—".to_string(), |k| settings::cap_text(k)))
-                    .collect();
-                ui.label(name);
-                ui.label(keys.join(" "));
-                ui.end_row();
-            }
-            ui.label("MIDI keyboard");
-            ui.label("Its keys (Input › MIDI input)");
-            ui.end_row();
-            ui.label("Mouse");
-            ui.label("The keys and buttons on the console view (F7)");
-            ui.end_row();
-        });
+    let mut show_controls = st.show_controls;
+    egui::Window::new("Controls").open(&mut show_controls).collapsible(false).resizable(false).show(ctx, |ui| {
+        console_choice(ui, st, info);
         ui.separator();
-        ui.label(egui::RichText::new("The piano's buttons").strong());
-        egui::Grid::new("controls").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
-            for input in Input::buttons() {
-                ui.label(input.label());
-                ui.label(keys_text(settings, input));
+        if st.controls_guitar {
+            ui.label(egui::RichText::new("The guitar's fret buttons").strong());
+            egui::Grid::new("guitar frets").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                for (fret, keys) in guitar_fret_lines(settings) {
+                    ui.label(fret);
+                    ui.label(keys);
+                    ui.end_row();
+                }
+                ui.label("Mouse");
+                ui.label("The frets, strings and buttons on the console view (F7)");
                 ui.end_row();
-            }
-        });
+            });
+            ui.label(egui::RichText::new("Strings 6 (low E) to 1, frets 1-4 on the keyboard to start with.").weak());
+            ui.separator();
+            ui.label(egui::RichText::new("The guitar's buttons and strings").strong());
+            egui::Grid::new("guitar controls").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                for input in Input::guitar_buttons() {
+                    ui.label(input.label());
+                    ui.label(keys_text(settings, input));
+                    ui.end_row();
+                }
+            });
+        } else {
+            ui.label(egui::RichText::new("The piano's keys").strong());
+            egui::Grid::new("piano keys").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                for (octave, name) in ["Low octave (F2 to E3)", "Middle octave (F3 to E4)", "High octave (F4 to E5)"].into_iter().enumerate() {
+                    let keys: Vec<String> = (0..12)
+                        .map(|k| settings.keys_for(Input::Key((octave * 12 + k) as u8)).first().map_or("—".to_string(), |k| settings::cap_text(k)))
+                        .collect();
+                    ui.label(name);
+                    ui.label(keys.join(" "));
+                    ui.end_row();
+                }
+                ui.label("MIDI keyboard");
+                ui.label("Its keys (Input › MIDI input)");
+                ui.end_row();
+                ui.label("Mouse");
+                ui.label("The keys and buttons on the console view (F7)");
+                ui.end_row();
+            });
+            ui.separator();
+            ui.label(egui::RichText::new("The piano's buttons").strong());
+            egui::Grid::new("controls").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                for input in Input::buttons() {
+                    ui.label(input.label());
+                    ui.label(keys_text(settings, input));
+                    ui.end_row();
+                }
+            });
+        }
         ui.separator();
         ui.label(egui::RichText::new("Blub").strong());
         egui::Grid::new("app keys").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
@@ -2636,6 +2727,7 @@ fn dialogs(ctx: &egui::Context, st: &mut UiState, settings: &mut Settings, info:
             }
         });
     });
+    st.show_controls = show_controls;
 
     updates_window(ctx, st, settings, actions);
     crate::manual::window(ctx, &mut st.manual);
@@ -2648,7 +2740,7 @@ fn dialogs(ctx: &egui::Context, st: &mut UiState, settings: &mut Settings, info:
     egui::Window::new("About Blub").open(&mut st.show_about).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.heading(egui::RichText::new("🐠 Blub").color(ACCENT));
         ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-        ui.label("An emulator for Fisher-Price consoles: the I Can Play Piano (2006).");
+        ui.label("An emulator for Fisher-Price consoles: the I Can Play Piano (2006) and the I Can Play Guitar (2007).");
         ui.add_space(6.0);
         ui.label("Blub includes no games. Use dumps of cartridges you own.");
         ui.label("The SPG2xx and unSP models follow MAME's research (BSD-3-Clause).");
@@ -2668,6 +2760,7 @@ fn dialogs(ctx: &egui::Context, st: &mut UiState, settings: &mut Settings, info:
                     ("Video (SPG2xx PPU)", "Title screens, menus and the games' pictures"),
                     ("Sound (SPG2xx SPU)", "Music and voices; mixing levels from MAME"),
                     ("Keys and buttons", "MAME's icanpian layout; what each button does is UNVERIFIED"),
+                    ("Guitar frets, strings, buttons", "Measured on the cartridges; left / right unconfirmed"),
                     ("TV / Keyboard Mode slider", "From MAME; Keyboard Mode lightly tested"),
                     ("Idle power-off", "None known on the console"),
                 ] {
