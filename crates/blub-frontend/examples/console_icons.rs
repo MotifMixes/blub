@@ -141,7 +141,7 @@ fn main() {
                 s.translate(at);
                 s
             }));
-            p.rect_filled(screen.translate(at), 0.0, egui::Color32::from_rgb(160, 60, 60));
+            p.rect_filled(screen.translate(at), 0.0, egui::Color32::from_rgb(40, 110, 120));
         });
         for (id, deltas) in &full.textures_delta.set {
             for delta in deltas.iter() {

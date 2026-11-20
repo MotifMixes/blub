@@ -11,7 +11,7 @@ type C = egui::Color32;
 pub fn color(hw: Hardware) -> C {
     match hw {
         Hardware::Piano => C::from_rgb(60, 140, 230),
-        Hardware::Guitar => C::from_rgb(225, 70, 60),
+        Hardware::Guitar => C::from_rgb(150, 95, 230),
     }
 }
 
@@ -97,12 +97,12 @@ pub fn paint_device(p: &egui::Painter, rect: egui::Rect, hw: Hardware) {
                 p.rect_filled(r, 1.0 * u, C::from_gray(30));
             }
         }
-        // I Can Play Guitar: a red electric guitar lying across, its neck to
+        // I Can Play Guitar: a purple guitar lying across, its neck to
         // the left with coloured fret buttons, a white pickguard with the
         // round buttons, and six strings over the body.
         Hardware::Guitar => {
-            let red = C::from_rgb(214, 44, 40);
-            let shadow = mix(red, C::BLACK, 0.45);
+            let body = C::from_rgb(120, 60, 200);
+            let shadow = mix(body, C::BLACK, 0.45);
             // The neck and headstock.
             p.rect_filled(rr(-24.0, 0.0, 52.0, 13.0).translate(v(0.0, 2.0)), 2.0 * u, C::from_black_alpha(45));
             p.rect_filled(rr(-24.0, 0.0, 52.0, 13.0), 2.0 * u, C::from_rgb(250, 240, 210));
@@ -119,7 +119,7 @@ pub fn paint_device(p: &egui::Painter, rect: egui::Rect, hw: Hardware) {
             for (x, y, r) in [(24.0, -9.0, 17.0), (28.0, 10.0, 20.0)] {
                 p.circle_filled(at(x, y + 2.0), r * u, C::from_black_alpha(45));
                 p.circle_filled(at(x, y), r * u, shadow);
-                p.circle_filled(at(x - 0.5, y - 0.8), (r - 1.2) * u, red);
+                p.circle_filled(at(x - 0.5, y - 0.8), (r - 1.2) * u, body);
             }
             // The pickguard with its buttons.
             p.rect_filled(rr(20.0, 2.0, 22.0, 18.0), 5.0 * u, C::from_gray(246));

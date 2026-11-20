@@ -594,13 +594,17 @@ fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 
 // ----- The I Can Play Guitar -----
 //
-// Blub's own drawing of the guitar (no photographs or logos), after the
-// cartridges' tutorial picture of it: a red electric guitar lying across
-// under the TV, its neck to the left with the coloured fret buttons (all
-// twelve frets on the outer strings, the first five on the four between),
-// a white pickguard on the body with two round blue buttons (Home, Pause)
-// and the arrow pad round Enter, and the six strings over the body, where
-// they are plucked. The low E lies on top, as on a guitar held to play.
+// Blub's own drawing of the guitar (no photographs or logos), laid out after
+// Mattel's quick set-up sheet (K7357) and in the purple the real toy came in
+// (it was sold in blue or purple; the cartridges' tutorial draws it red): a
+// double-cutaway guitar lying across under the TV, its pale neck to the left
+// with the coloured fret buttons (all twelve frets on the outer strings, the
+// first five on the four between), Home and Pause on the block where the
+// neck meets the body, then a white pickguard with the TV/GUITAR switch, the
+// arrow pad round Enter and a small round button, and the six short strings
+// between a raised bar and the bridge, where they are plucked; the input
+// jack and its cable above, the volume knob below. The low E lies on top,
+// as on a guitar held to play.
 
 /// The guitar drawing's height (its width is W, as the piano's).
 const GH: f32 = 138.0;
@@ -614,6 +618,95 @@ const G_FRETS: (f32, f32) = (8.0, 80.0);
 /// The strings over the body: plucked between the pickup and the bridge.
 const G_PICKUP: Rect = Rect { min: pos2(105.0, 89.0), max: pos2(108.5, 118.0) };
 const G_BRIDGE: f32 = 124.0;
+/// The body's outline (corners smoothed by `smooth`): the upper horn, the
+/// upper bout, the lower bout, the lower horn, and the cutaways round the
+/// neck's end, after Mattel's set-up sheet.
+const G_BODY: [Pos2; 20] = [
+    pos2(80.0, 81.0),
+    pos2(85.0, 78.5),
+    pos2(94.0, 79.0),
+    pos2(103.0, 82.0),
+    pos2(113.0, 79.0),
+    pos2(122.0, 80.0),
+    pos2(127.5, 87.0),
+    pos2(127.0, 99.0),
+    pos2(125.5, 106.0),
+    pos2(128.5, 117.0),
+    pos2(125.0, 128.0),
+    pos2(114.0, 133.0),
+    pos2(100.0, 132.0),
+    pos2(89.0, 130.5),
+    pos2(80.5, 127.0),
+    pos2(81.0, 124.0),
+    pos2(86.0, 121.5),
+    pos2(84.0, 118.5),
+    pos2(84.0, 88.5),
+    pos2(82.0, 86.0),
+];
+/// The pickguard's outline, round the buttons and the strings.
+const G_PICKGUARD: [Pos2; 12] = [
+    pos2(84.5, 87.0),
+    pos2(94.0, 84.5),
+    pos2(104.0, 87.0),
+    pos2(115.0, 85.5),
+    pos2(124.0, 88.0),
+    pos2(126.5, 96.0),
+    pos2(126.0, 111.0),
+    pos2(122.0, 120.0),
+    pos2(110.0, 123.5),
+    pos2(98.0, 121.0),
+    pos2(89.0, 123.5),
+    pos2(84.5, 120.0),
+];
+
+/// A closed outline through `points`, its corners rounded (Catmull-Rom,
+/// four steps a side).
+fn smooth(points: &[Pos2]) -> Vec<Pos2> {
+    let n = points.len();
+    let mut out = Vec::with_capacity(n * 4);
+    for i in 0..n {
+        let [p0, p1, p2, p3] = [points[(i + n - 1) % n], points[i], points[(i + 1) % n], points[(i + 2) % n]].map(|p| p.to_vec2());
+        for k in 0..4 {
+            let t = k as f32 / 4.0;
+            let (t2, t3) = (t * t, t * t * t);
+            let v = 0.5 * ((2.0 * p1) + (p2 - p0) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3);
+            out.push(v.to_pos2());
+        }
+    }
+    out
+}
+
+/// A filled outline that need not be convex (egui fills only convex
+/// polygons): cut into triangles by ear clipping.
+fn fill_outline(map: &Map, outline: &[Pos2], color: Color32) -> egui::Shape {
+    let cross = |a: Pos2, b: Pos2, c: Pos2| (b - a).x * (c - a).y - (b - a).y * (c - a).x;
+    let area: f32 = (0..outline.len()).map(|i| cross(Pos2::ZERO, outline[i], outline[(i + 1) % outline.len()])).sum();
+    let sign = area.signum();
+    let mut mesh = egui::Mesh::default();
+    for &p in outline {
+        mesh.colored_vertex(map.p(p), color);
+    }
+    let mut left: Vec<usize> = (0..outline.len()).collect();
+    while left.len() > 3 {
+        let n = left.len();
+        let ear = (0..n).find(|&i| {
+            let (a, b, c) = (outline[left[(i + n - 1) % n]], outline[left[i]], outline[left[(i + 1) % n]]);
+            cross(a, b, c) * sign > 0.0
+                && !left.iter().any(|&j| {
+                    let p = outline[j];
+                    p != a && p != b && p != c && cross(a, b, p) * sign >= 0.0 && cross(b, c, p) * sign >= 0.0 && cross(c, a, p) * sign >= 0.0
+                })
+        });
+        // A degenerate rest (points in a line): what is left is dropped.
+        let Some(i) = ear else { break };
+        mesh.add_triangle(left[(i + n - 1) % n] as u32, left[i] as u32, left[(i + 1) % n] as u32);
+        left.remove(i);
+    }
+    if left.len() == 3 {
+        mesh.add_triangle(left[0] as u32, left[1] as u32, left[2] as u32);
+    }
+    egui::Shape::mesh(mesh)
+}
 
 /// String `string`'s line across the neck and body (low E, string 5, on
 /// top).
@@ -700,27 +793,47 @@ fn paint_guitar(map: &Map, lit: &Lit, ctx: &egui::Context) -> Vec<egui::Shape> {
     out.push(egui::Shape::rect_filled(map.r(Rect::from_center_size(pos2(W / 2.0, G_PICTURE.max.y + 5.6), vec2(26.0, 3.0))), 1.0 * s, Color32::from_gray(40)));
     out.push(egui::Shape::rect_stroke(tv.shrink(2.0 * s), 2.0 * s, Stroke::new(4.0 * s, Color32::from_gray(28)), egui::StrokeKind::Middle));
     out.push(egui::Shape::rect_stroke(tv, 4.0 * s, Stroke::new(0.6 * s, Color32::from_gray(70)), egui::StrokeKind::Inside));
-    // The body: two round bouts and the waist between, a shadow under it.
-    let red = Color32::from_rgb(214, 44, 40);
-    let dark = mix(red, Color32::BLACK, 0.45);
-    let bouts = [(pos2(100.0, 92.0), 12.5), (pos2(108.0, 112.0), 18.0)];
-    for (c, r) in bouts {
-        out.push(egui::Shape::circle_filled(map.p(c + vec2(0.0, 1.2)), r * s, Color32::from_black_alpha(80)));
-    }
-    for (c, r) in bouts {
-        out.push(egui::Shape::circle_filled(map.p(c), r * s, dark));
-    }
-    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(80.0, 88.0), pos2(112.0, 118.0))), 4.0 * s, dark));
-    for (c, r) in bouts {
-        out.push(egui::Shape::circle_filled(map.p(c - vec2(0.4, 0.6)), (r - 1.0) * s, red));
-    }
-    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(81.0, 88.6), pos2(112.0, 117.2))), 3.6 * s, red));
-    out.push(egui::Shape::ellipse_filled(map.p(pos2(104.0, 80.0)), vec2(8.0, 1.0) * s, Color32::from_white_alpha(40)));
-    // The pickguard, white, under the buttons and the strings' ends.
-    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(82.0, 90.0), pos2(G_BRIDGE + 1.0, 117.0))), 5.0 * s, Color32::from_gray(244)));
+    // The body: a double-cutaway electric guitar's, its two horns reaching
+    // along the neck, a shadow under it (Mattel's set-up sheet draws it).
+    let body = Color32::from_rgb(120, 60, 200);
+    let dark = mix(body, Color32::BLACK, 0.45);
+    let outline = smooth(&G_BODY);
+    let shifted: Vec<Pos2> = outline.iter().map(|&p| p + vec2(0.0, 1.2)).collect();
+    out.push(fill_outline(map, &shifted, Color32::from_black_alpha(80)));
+    out.push(fill_outline(map, &outline, body));
+    out.push(egui::Shape::closed_line(outline.iter().map(|&p| map.p(p)).collect(), Stroke::new(0.6 * s, dark)));
+    out.push(egui::Shape::ellipse_filled(map.p(pos2(112.0, 80.6)), vec2(7.0, 0.8) * s, Color32::from_white_alpha(40)));
+    // The pickguard, white, under the buttons and the strings.
+    let guard = smooth(&G_PICKGUARD);
+    out.push(fill_outline(map, &guard, Color32::from_gray(244)));
+    out.push(egui::Shape::closed_line(guard.iter().map(|&p| map.p(p)).collect(), Stroke::new(0.3 * s, Color32::from_gray(190))));
+    // The input jack the TV cable plugs into, its cable leaving the body,
+    // and the volume knob on the lower bout.
+    let jack = map.p(pos2(120.5, 85.0));
+    out.push(egui::Shape::line_segment([jack, map.p(pos2(128.5, 78.0))], Stroke::new(1.2 * s, Color32::from_gray(35))));
+    out.push(egui::Shape::circle_filled(jack, 1.5 * s, Color32::from_gray(200)));
+    out.push(egui::Shape::circle_filled(jack, 0.7 * s, Color32::from_gray(40)));
+    let knob = map.p(pos2(121.0, 125.0));
+    out.push(egui::Shape::circle_filled(knob + vec2(0.0, 0.4 * s), 2.4 * s, Color32::from_black_alpha(90)));
+    out.push(egui::Shape::circle_filled(knob, 2.4 * s, Color32::from_gray(235)));
+    out.push(egui::Shape::circle_stroke(knob, 1.6 * s, Stroke::new(0.25 * s, Color32::from_gray(170))));
+    out.push(egui::Shape::line_segment([knob, knob + vec2(-1.2, -1.6) * s], Stroke::new(0.35 * s, Color32::from_gray(120))));
     // The bridge, and the whammy bar from it.
     out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(G_BRIDGE - 0.6, 89.5), pos2(G_BRIDGE + 1.6, 117.5))), 0.6 * s, Color32::from_gray(170)));
     out.push(egui::Shape::line_segment([map.p(pos2(G_BRIDGE, 118.0)), map.p(pos2(112.0, 128.0))], Stroke::new(1.0 * s, Color32::from_gray(225))));
+    // The block where the neck meets the body, Home and Pause on it.
+    let heel = map.r(Rect::from_min_max(pos2(G_NECK.max.x - 0.5, G_NECK.min.y - 0.5), pos2(91.5, G_NECK.max.y + 0.5)));
+    out.push(egui::Shape::rect_filled(heel.translate(vec2(0.0, 0.5 * s)), 0.8 * s, Color32::from_black_alpha(60)));
+    out.push(egui::Shape::rect_filled(heel, 0.8 * s, Color32::from_gray(238)));
+    out.push(egui::Shape::rect_stroke(heel, 0.8 * s, Stroke::new(0.25 * s, Color32::from_gray(185)), egui::StrokeKind::Inside));
+    // The TV/GUITAR switch over the arrows (on TV: Blub always shows the
+    // picture), and the small round button under them (what it does is
+    // unknown: docs/hardware.md).
+    let slot = map.r(Rect::from_center_size(pos2(97.5, 93.6), vec2(4.6, 1.8)));
+    out.push(egui::Shape::rect_filled(slot, 0.9 * s, Color32::from_gray(150)));
+    out.push(egui::Shape::circle_filled(slot.left_center() + vec2(0.9 * s, 0.0), 0.9 * s, Color32::from_gray(225)));
+    out.push(text(ctx, map.p(pos2(97.5, 91.4)), egui::Align2::CENTER_CENTER, "TV/GUITAR", 1.0 * s, INK));
+    out.push(egui::Shape::circle_filled(map.p(pos2(93.0, 109.6)), 0.9 * s, Color32::from_gray(175)));
     // The neck: the headstock, the board and its fret wires.
     out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(0.8, G_NECK.min.y - 2.5), pos2(G_NECK.min.x + 0.5, G_NECK.max.y + 2.5))), 2.0 * s, Color32::from_rgb(40, 40, 46)));
     for k in 0..3 {
@@ -729,26 +842,28 @@ fn paint_guitar(map: &Map, lit: &Lit, ctx: &egui::Context) -> Vec<egui::Shape> {
         }
     }
     out.push(egui::Shape::rect_filled(map.r(G_NECK).translate(vec2(0.0, 0.8 * s)), 1.0 * s, Color32::from_black_alpha(80)));
-    out.push(egui::Shape::rect_filled(map.r(G_NECK), 1.0 * s, Color32::from_rgb(250, 242, 215)));
+    // The board is pale plastic in sections, a groove between frets, and
+    // carries no strings: they lie over the body only.
+    out.push(egui::Shape::rect_filled(map.r(G_NECK), 1.0 * s, Color32::from_gray(236)));
     let fret_w = (G_FRETS.1 - G_FRETS.0) / blub_piano::FRETS as f32;
     for f in 0..=blub_piano::FRETS {
         let x = G_FRETS.0 + f as f32 * fret_w;
-        out.push(egui::Shape::line_segment([map.p(pos2(x, G_NECK.min.y)), map.p(pos2(x, G_NECK.max.y))], Stroke::new(0.4 * s, Color32::from_gray(150))));
+        out.push(egui::Shape::line_segment([map.p(pos2(x, G_NECK.min.y)), map.p(pos2(x, G_NECK.max.y))], Stroke::new(0.4 * s, Color32::from_gray(185))));
     }
-    // The strings, along the neck and over the body (lit while plucked).
+    // The strings over the body (lit while plucked).
     for string in 0..blub_piano::STRINGS {
         let y = string_y(string);
         let width = (0.25 + 0.07 * string as f32) * s;
         let on = (lit.pressed)(Input::String(string as u8)) || (lit.pressed)(Input::StrumAll);
         let col = if on { LIT } else { Color32::from_gray(150) };
-        out.push(egui::Shape::line_segment([map.p(pos2(G_NECK.min.x, y)), map.p(pos2(G_NECK.max.x, y))], Stroke::new(width, Color32::from_gray(160))));
         out.push(egui::Shape::line_segment([map.p(pos2(G_PICKUP.min.x, y)), map.p(pos2(G_BRIDGE, y))], Stroke::new(width + if on { 0.4 * s } else { 0.0 }, col)));
     }
-    // The pickup: plucks all six.
+    // The raised white bar at the strings' end: plucks all six.
     let all = (lit.pressed)(Input::StrumAll);
     let pickup = map.r(G_PICKUP);
-    out.push(egui::Shape::rect_filled(pickup, 0.8 * s, if all { mix(Color32::from_rgb(190, 225, 245), LIT, 0.5) } else { Color32::from_rgb(190, 225, 245) }));
-    out.push(egui::Shape::rect_stroke(pickup, 0.8 * s, Stroke::new(0.3 * s, Color32::from_rgb(80, 120, 150)), egui::StrokeKind::Inside));
+    out.push(egui::Shape::rect_filled(pickup.translate(vec2(0.0, 0.5 * s)), 0.8 * s, Color32::from_black_alpha(60)));
+    out.push(egui::Shape::rect_filled(pickup, 0.8 * s, if all { mix(Color32::from_gray(248), LIT, 0.5) } else { Color32::from_gray(248) }));
+    out.push(egui::Shape::rect_stroke(pickup, 0.8 * s, Stroke::new(0.3 * s, Color32::from_gray(170)), egui::StrokeKind::Inside));
     // The fret buttons.
     for string in 0..blub_piano::STRINGS {
         for fret in 1..=blub_piano::FRETS {
