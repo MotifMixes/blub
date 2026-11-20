@@ -866,7 +866,16 @@ impl App {
         let room_h = if scale == 0 && breathe { room_h * 9 / 10 } else { room_h };
         let most = (room_w / unit.0).min(room_h / unit.1).max(1);
         let times = if scale == 0 { most } else { scale.min(most) };
-        let want = PhysicalSize::new(unit.0 * times + chrome_w, unit.1 * times + chrome_h);
+        let want = if scale == 0 && !breathe {
+            // The console view fills the room with its shape kept, not in
+            // steps (a step is a fifth of a 900-pixel screen): its drawing
+            // scales freely, and Pixel mode falls back to sharp pixels when
+            // no whole scale fits near full size (see `ConsoleView::show`).
+            let k = (room_w as f32 / unit.0 as f32).min(room_h as f32 / unit.1 as f32);
+            PhysicalSize::new((unit.0 as f32 * k) as u32 + chrome_w, (unit.1 as f32 * k) as u32 + chrome_h)
+        } else {
+            PhysicalSize::new(unit.0 * times + chrome_w, unit.1 * times + chrome_h)
+        };
         // Never smaller than the window's minimum (the menu bar must fit).
         let min: PhysicalSize<u32> = MIN_WINDOW.to_physical(window.scale_factor());
         let want = PhysicalSize::new(want.width.max(min.width), want.height.max(min.height));
@@ -1515,11 +1524,14 @@ impl App {
             }
         }
         let display = self.settings.display;
+        // The console view fills the TV with sharp pixels when no whole
+        // scale fits near full size (see `ConsoleView::show`).
+        let shown = if display == crate::gpu::Display::Pixel && screen.is_some() && !self.console_view.whole() { crate::gpu::Display::Sharp } else { display };
         let at = screen.unwrap_or(area);
         let px_area = (at.min.x * ppp, at.min.y * ppp, at.width() * ppp, at.height() * ppp);
-        self.lcd_px = Gpu::picture_rect(px_area, size, display);
+        self.lcd_px = Gpu::picture_rect(px_area, size, shown);
         let jobs = self.egui_ctx.tessellate(out.shapes, ppp);
-        let lcd = running.then_some((self.lcd_px, display, self.settings.ai));
+        let lcd = running.then_some((self.lcd_px, shown, self.settings.ai));
         let mut deltas = out.textures_delta;
         let rendered = gpu.render(lcd, &jobs, &deltas, ppp);
         // Handled by `render` (debug builds of egui panic when an unhandled

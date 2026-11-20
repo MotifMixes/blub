@@ -118,6 +118,8 @@ pub struct Lit<'a> {
 pub struct ConsoleView {
     /// The input the pointer holds now.
     held: Option<Input>,
+    /// Whether the last drawing put its picture at a whole-number scale.
+    whole: bool,
 }
 
 /// A white key's or black key's place on the keybed (drawing units).
@@ -225,23 +227,35 @@ impl ConsoleView {
         self.held.take().map(|i| Event::Press(i, false)).into_iter().collect()
     }
 
+    /// Whether the last `show` put the picture at a whole-number scale (asked
+    /// for with `Lit::whole_pixels`); when not, it is drawn sharp instead.
+    pub fn whole(&self) -> bool {
+        self.whole
+    }
+
     /// Draws the piano in `area` and handles the pointer; returns where the
     /// picture is and what the pointer did. `under` is a slot painted
     /// before the rest of the UI, so menus and messages stay on top.
     pub fn show(&mut self, ui: &egui::Ui, under: egui::layers::ShapeIdx, layout: &Layout, area: Rect, lit: &Lit) -> (Rect, Vec<Event>) {
         let mut shell = shell_rect(layout, area);
+        self.whole = false;
         if lit.whole_pixels {
             // The whole drawing scaled so its picture is a whole multiple of
             // the console's: the next multiple up when the drawing still fits
-            // the area at it (eating into the margin), else the one below.
+            // the area at it (eating into the margin), else the one below,
+            // but only if that keeps it near full size. Otherwise (a 2x
+            // drawing too tall for a 900-pixel screen would drop to 1x, half
+            // the window black) it stays as large as fits, and the picture is
+            // drawn with sharp pixels instead (see `whole`).
             let ppp = ui.ctx().pixels_per_point();
             let screen = place(shell, layout.screen);
             let times = screen.width() * ppp / blub_piano::SCREEN_W as f32;
             let size_at = |n: f32| shell.size() * (n * blub_piano::SCREEN_W as f32 / ppp / screen.width());
             let up = times.ceil();
             let n = if size_at(up).x <= area.width() && size_at(up).y <= area.height() { up } else { times.floor() };
-            if n >= 1.0 {
+            if n >= 1.0 && n >= times * 0.9 {
                 shell = Rect::from_center_size(shell.center(), size_at(n));
+                self.whole = true;
             }
         }
         let screen = place(shell, layout.screen);
