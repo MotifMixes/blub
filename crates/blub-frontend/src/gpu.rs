@@ -495,8 +495,12 @@ impl Gpu {
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         if size.width > 0 && size.height > 0 {
-            self.config.width = size.width;
-            self.config.height = size.height;
+            // Never past what the GPU allows: Windows has reported a
+            // nonsense size (a negative height read as 65471) for a window
+            // sized from outside, and the surface would refuse it (a panic).
+            let most = self.device.limits().max_texture_dimension_2d;
+            self.config.width = size.width.min(most);
+            self.config.height = size.height.min(most);
             if let Some(surface) = &self.surface {
                 surface.configure(&self.device, &self.config);
             }
