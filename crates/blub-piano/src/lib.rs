@@ -393,6 +393,12 @@ impl Piano {
         }
     }
 
+    /// The sprite table (4 words per sprite) and the video registers, for
+    /// debugging tools.
+    pub fn video_state(&self) -> (&[u16], &[u16]) {
+        (&self.bus.video.sprites, &self.bus.video.regs)
+    }
+
     /// The picture: SCREEN_W x SCREEN_H pixels, 0x00RRGGBB.
     pub fn render(&self, out: &mut [u32]) {
         out.copy_from_slice(&self.bus.video.frame);

@@ -13,7 +13,8 @@
 //! (<out>.<frame>.ppm). PIANO_WAV=file.wav saves the sound. PIANO_KEYBOARD=1
 //! starts with the slider on Keyboard Mode (no TV picture). PIANO_SOUNDLOG=1
 //! prints sound channel starts and stops with their frame, PIANO_PORTLOG=1
-//! changes to the ports' outputs.
+//! changes to the ports' outputs. PIANO_SPRITES=1 prints the sprite table
+//! at each PIANO_PPM_AT frame.
 
 use blub_piano::{Button, GuitarButton, Model, Piano, SCREEN_H, SCREEN_W};
 use std::io::Write;
@@ -125,6 +126,13 @@ fn main() {
         if shots.contains(&n) {
             piano.render(&mut frame);
             save_ppm(&format!("{out}.{n}.ppm"), &frame);
+            if std::env::var("PIANO_SPRITES").is_ok_and(|v| v == "1") {
+                let (sprites, regs) = piano.video_state();
+                println!("{n:5} sprite ctrl {:04x} base {:04x}", regs[0x42], regs[0x22]);
+                for (i, s) in sprites.chunks(4).enumerate().filter(|(_, s)| s[0] != 0) {
+                    println!("{n:5}   #{i:3} tile {:04x} x {:04x} y {:04x} attr {:04x}", s[0], s[1], s[2], s[3]);
+                }
+            }
         }
         if piano.powered_off() {
             println!("powered off at frame {n}");
