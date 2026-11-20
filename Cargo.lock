@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "blub-android"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "android_logger",
  "blub-frontend",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "blub-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "blub-frontend"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "blub-piano"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "serde",

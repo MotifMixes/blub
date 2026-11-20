@@ -13,7 +13,7 @@ looks and works the same way.
 1. Build it (below), or download a release when there is one.
 2. In Blub, add your games folder in the library, or open a cartridge with **File → Open Cartridge…** (or drop it on
    the window). Cartridges are 8 MB `.bin` dumps (zipped is fine too).
-3. Play on your PC keyboard, a game controller, the mouse on the drawn piano (the console view, F7), or a **MIDI
+3. Play on your PC keyboard, a game controller, the mouse on the drawn piano or guitar (the console view, F7), or a **MIDI
    keyboard**.
 
 **Something wrong?** Send the file `blub.log` with your report. It's in `%APPDATA%\Blub` on Windows and
@@ -79,8 +79,9 @@ changed in **Input → Key bindings…**):
 | Metronome | Numpad 8 | |
 
 **MIDI:** plug in a MIDI keyboard and start a game: Blub opens the first MIDI input it finds (or the one chosen in
-**Input → MIDI input**) and its keys play the piano's. Only the piano's own three octaves (F2 to E5) play: notes outside them do nothing; an
-octave shift (-2 to +2) is in the same menu. **Input → Keyboard Mode** moves the console's TV / Keyboard Mode slider.
+**Input → MIDI input**) and its keys play the piano's. Only the piano's own three octaves (F2 to E5) play: notes outside them do nothing. On
+the guitar a note plucks a string with the fret that sounds it (E2 to E5), the lowest fret on a free string, so chords spread over the
+strings. An octave shift (-2 to +2) is in the same menu. **Input → Keyboard Mode** moves the console's TV / Keyboard Mode slider.
 
 ### Guitar
 
