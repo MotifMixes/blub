@@ -283,9 +283,94 @@ impl MidiKeys {
     }
 }
 
+/// The guitar played from a MIDI keyboard: a note is a string and fret that
+/// sound it (`GUITAR_OPEN`, the frets the neck has; notes past E2-E5 play
+/// nothing), the lowest fret on a string not sounding another note, so
+/// chords spread over the strings. The fret is held while the note is, and
+/// the string plucked when it starts.
+#[derive(Debug, Clone, Default)]
+pub struct MidiFrets {
+    /// The note each string sounds now and its fret (0: open).
+    strings: [Option<(u8, u8)>; STRINGS],
+}
+
+impl MidiFrets {
+    /// Note `note` pressed or let go, moved by `octaves` first: the inputs
+    /// to press (true) or let go, in order.
+    pub fn note(&mut self, note: u8, on: bool, octaves: i32) -> Vec<(Input, bool)> {
+        let mut out = Vec::new();
+        let Ok(note) = u8::try_from(note as i32 + 12 * octaves) else {
+            return out;
+        };
+        let sounding = self.strings.iter().position(|x| x.is_some_and(|(n, _)| n == note));
+        if !on {
+            if let Some(s) = sounding
+                && let Some((_, fret)) = self.strings[s].take()
+                && fret > 0
+            {
+                out.push((Input::Fret(s as u8, fret), false));
+            }
+            return out;
+        }
+        let place = sounding.map(|s| (s, self.strings[s].map_or(0, |(_, f)| f))).or_else(|| {
+            (0..STRINGS)
+                .filter_map(|s| {
+                    let fret = note.checked_sub(blub_piano::GUITAR_OPEN[s])?;
+                    (fret == 0 || blub_piano::has_fret(s, fret as usize)).then_some((s, fret))
+                })
+                .min_by_key(|&(s, fret)| (self.strings[s].is_some(), fret))
+        });
+        let Some((s, fret)) = place else {
+            return out;
+        };
+        // A string sounds one note: the one it played before is let go.
+        if let Some((_, old)) = self.strings[s].replace((note, fret))
+            && old > 0
+            && old != fret
+        {
+            out.push((Input::Fret(s as u8, old), false));
+        }
+        if fret > 0 {
+            out.push((Input::Fret(s as u8, fret), true));
+        }
+        out.extend([(Input::String(s as u8), true), (Input::String(s as u8), false)]);
+        out
+    }
+
+    /// Every note let go: the frets that were held.
+    pub fn release_all(&mut self) -> Vec<Input> {
+        let held = self.strings.iter().enumerate().filter_map(|(s, x)| x.filter(|&(_, f)| f > 0).map(|(_, f)| Input::Fret(s as u8, f))).collect();
+        self.strings = Default::default();
+        held
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn midi_notes_play_the_guitar_s_strings() {
+        let mut m = MidiFrets::default();
+        let pluck = |s: u8| [(Input::String(s), true), (Input::String(s), false)];
+        // E4 (64) is string 1 open; E2 (40) string 6 open; A2 (45) string 5.
+        assert_eq!(m.note(64, true, 0), pluck(0).to_vec());
+        assert_eq!(m.note(40, true, 0), pluck(5).to_vec());
+        // G2 (43): string 6 fret 3, but string 6 sounds E2, and no other
+        // string reaches that low, so it takes string 6 over.
+        assert_eq!(m.note(43, true, 0), [vec![(Input::Fret(5, 3), true)], pluck(5).to_vec()].concat());
+        // C3 (48): string 5 fret 3 (string 6 fret 8 is busy).
+        assert_eq!(m.note(48, true, 0), [vec![(Input::Fret(4, 3), true)], pluck(4).to_vec()].concat());
+        assert_eq!(m.note(48, false, 0), vec![(Input::Fret(4, 3), false)]);
+        assert_eq!(m.note(48, false, 0), vec![], "already let go");
+        // E5 (76): string 1 fret 12, which takes string 1 from E4.
+        assert_eq!(m.note(76, true, 0), [vec![(Input::Fret(0, 12), true)], pluck(0).to_vec()].concat());
+        for note in [0, 39, 77, 127] {
+            assert_eq!(m.note(note, true, 0), vec![], "{note} is off the neck");
+        }
+        assert_eq!(m.note(64, true, 1), [vec![(Input::Fret(0, 12), true)], pluck(0).to_vec()].concat(), "an octave up: E5 again, re-plucked");
+        assert_eq!(m.release_all(), vec![Input::Fret(0, 12), Input::Fret(5, 3)]);
+    }
 
     #[test]
     fn inputs_have_names_and_places() {

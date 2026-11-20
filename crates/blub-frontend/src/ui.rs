@@ -832,7 +832,7 @@ fn menus(ui: &mut egui::Ui, st: &mut UiState, settings: &mut Settings, info: &In
         }
         ui.separator();
         sub_menu(ui, "🎹  MIDI input", |ui| {
-            ui.label(egui::RichText::new("A MIDI keyboard plays the piano's keys while a game runs.").weak());
+            ui.label(egui::RichText::new("A MIDI keyboard plays the piano's keys, or the guitar's strings, while a game runs.").weak());
             let mut choice = settings.midi_input.clone();
             let mut changed = ui
                 .radio_value(&mut choice, "auto".to_string(), "Automatic (the first one)")
@@ -866,7 +866,7 @@ fn menus(ui: &mut egui::Ui, st: &mut UiState, settings: &mut Settings, info: &In
                     }
                 }
             });
-            ui.label(egui::RichText::new("Notes outside the piano's three octaves (F2 to E5) fold into them.").weak());
+            ui.label(egui::RichText::new("Notes outside the piano's three octaves (F2 to E5) play nothing. On the guitar, a note plucks a string with the fret that sounds it (E2 to E5); a chord spreads over the strings.").weak());
         });
     });
     top_menu(ui, rows, "🖥", "Video", |ui| {

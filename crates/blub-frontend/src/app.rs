@@ -105,6 +105,8 @@ pub struct App {
     held: Held,
     /// The keys a MIDI keyboard holds.
     midi_keys: crate::piano::MidiKeys,
+    /// The strings and frets a MIDI keyboard plays on the guitar.
+    midi_frets: crate::piano::MidiFrets,
     #[cfg(not(target_os = "android"))]
     midi: crate::midi::Midi,
     gpu: Option<Gpu>,
@@ -230,6 +232,7 @@ impl App {
             console_view: ConsoleView::default(),
             held: Held::default(),
             midi_keys: Default::default(),
+            midi_frets: Default::default(),
             #[cfg(not(target_os = "android"))]
             midi: Default::default(),
             gpu: None,
@@ -410,6 +413,7 @@ impl App {
         self.console_view.release_all();
         self.held.clear();
         self.midi_keys.release_all();
+        self.midi_frets.release_all();
         // Fast-forward and rewind are held keys too.
         self.fast_forward = false;
         self.rewinding = false;
@@ -569,6 +573,11 @@ impl App {
         let shift = self.settings.midi_octave_shift.clamp(-2, 2);
         for e in events {
             match e {
+                crate::midi::Event::Note(note, on) if self.guitar() => {
+                    for (input, down) in self.midi_frets.note(note, on, shift) {
+                        self.press(Source::Midi, input, down);
+                    }
+                }
                 crate::midi::Event::Note(note, on) => {
                     if let Some((key, down)) = self.midi_keys.note(note, on, shift) {
                         self.press(Source::Midi, Input::Key(key as u8), down);
@@ -576,6 +585,7 @@ impl App {
                 }
                 crate::midi::Event::AllOff => {
                     self.midi_keys.release_all();
+                    self.midi_frets.release_all();
                     self.release(Source::Midi);
                 }
             }
@@ -583,6 +593,7 @@ impl App {
         // The keyboard went away: nothing it held stays down.
         if self.midi.connected().is_none() && self.held.any_pressed() {
             self.midi_keys.release_all();
+            self.midi_frets.release_all();
             self.release(Source::Midi);
         }
     }
