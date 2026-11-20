@@ -156,10 +156,15 @@ pub struct Bus {
     port_last: [Option<u16>; 3],
     /// The keys held, by octave (bit 0 F ... bit 11 E; octave 0 the
     /// lowest), and the buttons scanned with each octave (port C).
+    /// On the guitar, the lines read with each of its six scans (port A,
+    /// port C).
     #[serde(skip)]
-    pub keys: [u16; 3],
+    pub keys: [u16; 6],
     #[serde(skip)]
-    pub buttons: [u16; 3],
+    pub buttons: [u16; 6],
+    /// The guitar's scan (port A bits 10-15) instead of the piano's.
+    #[serde(skip)]
+    pub guitar: bool,
     /// What ports A and C read: the octave the scan last picked.
     inlatch_a: u16,
     inlatch_c: u16,
@@ -219,8 +224,9 @@ impl Bus {
             port_c_out: 0,
             port_log: None,
             port_last: [None; 3],
-            keys: [0; 3],
-            buttons: [0; 3],
+            keys: [0; 6],
+            buttons: [0; 6],
+            guitar: false,
             inlatch_a: 0,
             inlatch_c: 0,
             sio_bits: 0,
@@ -404,12 +410,20 @@ impl Bus {
     }
 
     fn scan_select(&mut self, out: u16) {
-        let group = match out & 0x7000 {
+        let group = if self.guitar {
+            match out & 0xfc00 {
+                0 => None,
+                s if s.is_power_of_two() => Some(s.trailing_zeros() as usize - 10),
+                _ => return,
+            }
+        } else {
+            match out & 0x7000 {
             0 => None,
             0x4000 => Some(0),
             0x2000 => Some(1),
             0x1000 => Some(2),
             _ => return,
+            }
         };
         match group {
             Some(g) => {

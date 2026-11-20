@@ -15,7 +15,7 @@ pub enum Pick {
 impl Pick {
     pub fn title(self) -> &'static str {
         match self {
-            Pick::Cartridge => "Open I Can Play Piano cartridge",
+            Pick::Cartridge => "Open I Can Play cartridge",
             Pick::RomFolder => "Choose your games folder",
             Pick::RecordFolder => "Choose recording output folder",
         }
@@ -51,7 +51,7 @@ pub fn native_pick(what: Pick, start: Option<&Path>) -> Option<PathBuf> {
     if what.is_folder() {
         return d.pick_folder();
     }
-    d.add_filter("I Can Play Piano cartridges", &GAMES).add_filter("All files", &["*"]).pick_file()
+    d.add_filter("I Can Play cartridges", &GAMES).add_filter("All files", &["*"]).pick_file()
 }
 
 /// macOS: the open panel as a sheet on the window, shown at once and
@@ -76,7 +76,7 @@ impl SheetPick {
             Box::pin(d.pick_folder())
         } else {
             Box::pin(
-                d.add_filter("I Can Play Piano cartridges", &GAMES)
+                d.add_filter("I Can Play cartridges", &GAMES)
                     .add_filter("All files", &["*"])
                     .pick_file(),
             )

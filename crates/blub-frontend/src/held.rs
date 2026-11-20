@@ -1,4 +1,4 @@
-//! The piano's keys and buttons held by each input source (keyboard, the
+//! The consoles' keys and buttons held by each input source (keyboard, the
 //! console view's controls, gamepads, a MIDI keyboard). An input is down
 //! while any source holds it, so letting go of a virtual key never releases
 //! a PC key still held, or the other way round.
@@ -15,15 +15,17 @@ pub enum Source {
 
 #[derive(Debug, Default, Clone)]
 pub struct Held {
-    masks: [u64; 4],
+    masks: [u128; 4],
 }
 
-fn bit(i: Input) -> u64 {
+fn bit(i: Input) -> u128 {
     1 << i.index()
 }
 
+const _: () = assert!(Input::COUNT <= 128, "an input a bit");
+
 impl Held {
-    fn any(&self) -> u64 {
+    fn any(&self) -> u128 {
         self.masks.iter().fold(0, |a, m| a | m)
     }
 

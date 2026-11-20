@@ -1,5 +1,7 @@
 //! Console view: the emulated picture on a drawn TV above a drawing of the
-//! I Can Play Piano itself, its keyboard and buttons clickable. A
+//! console itself, the I Can Play Piano (its keyboard and buttons
+//! clickable) or the I Can Play Guitar (its fret buttons, strings and
+//! buttons; see `paint_guitar`). A
 //! presentation feature only: it turns pointer input into the same key and
 //! button presses the PC keyboard makes and never touches the emulation.
 //!
@@ -19,7 +21,7 @@
 //! (song screens) lies right above the drawn keys, key over key.
 
 use crate::piano::{Input, is_black};
-use blub_piano::{Button, KEYS};
+use blub_piano::{Button, GuitarButton, KEYS};
 use egui::{Color32, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 
 /// The drawing's size in its own units (`U`), and where things are in it.
@@ -87,14 +89,22 @@ pub struct Layout {
     pub screen: Rect,
     /// Width / height of the emulated picture.
     pub screen_aspect: f32,
+    /// The guitar's drawing, not the piano's.
+    pub guitar: bool,
+}
+
+/// The drawing of the console a game runs on.
+pub fn layout(guitar: bool) -> Layout {
+    if guitar { guitar_layout() } else { piano_layout() }
 }
 
 /// The I Can Play Piano's drawing.
-pub fn layout() -> Layout {
+pub fn piano_layout() -> Layout {
     Layout {
         aspect: W / H,
         screen: Rect::from_min_max(pos2(PICTURE.min.x / W, PICTURE.min.y / H), pos2(PICTURE.max.x / W, PICTURE.max.y / H)),
         screen_aspect: blub_piano::SCREEN_W as f32 / blub_piano::SCREEN_H as f32,
+        guitar: false,
     }
 }
 
@@ -260,15 +270,16 @@ impl ConsoleView {
         }
         let screen = place(shell, layout.screen);
         let map = Map { shell };
-        ui.painter().set(under, egui::Shape::Vec(paint(&map, lit, ui.ctx())));
+        ui.painter().set(under, egui::Shape::Vec(paint_any(layout, &map, lit, ui.ctx())));
         // The case is one control: whatever is under the pointer while it
         // is held down on it is played (sliding from key to key).
-        let case = piano_map(&map).r(CASE);
+        let case = if layout.guitar { map.r(G_GUITAR) } else { piano_map(&map).r(CASE) };
+        let hit = |p: Pos2| if layout.guitar { guitar_hit(&map, p) } else { hit(&map, p) };
         let resp = ui.interact(case, egui::Id::new("piano console view"), egui::Sense::click_and_drag());
         let pos = ui.ctx().pointer_latest_pos();
-        let now = if resp.is_pointer_button_down_on() { pos.and_then(|p| hit(&map, p)) } else { None };
+        let now = if resp.is_pointer_button_down_on() { pos.and_then(hit) } else { None };
         if resp.hovered()
-            && let Some(i) = pos.and_then(|p| hit(&map, p))
+            && let Some(i) = pos.and_then(hit)
         {
             let keys = (lit.keys)(i);
             let tip = if keys.is_empty() { i.label() } else { format!("{}  ({keys})", i.label()) };
@@ -293,7 +304,11 @@ impl ConsoleView {
 pub fn capture_shapes(layout: &Layout, size: (u32, u32), lit: &Lit, ctx: &egui::Context) -> (Vec<egui::Shape>, Rect) {
     let shell = Rect::from_min_size(Pos2::ZERO, vec2(size.0 as f32, size.1 as f32));
     let screen = place(shell, layout.screen);
-    (paint(&Map { shell }, lit, ctx), screen)
+    (paint_any(layout, &Map { shell }, lit, ctx), screen)
+}
+
+fn paint_any(layout: &Layout, map: &Map, lit: &Lit, ctx: &egui::Context) -> Vec<egui::Shape> {
+    if layout.guitar { paint_guitar(map, lit, ctx) } else { paint(map, lit, ctx) }
 }
 
 /// A recording's size for the console view `height` pixels tall (even
@@ -577,6 +592,267 @@ fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
 }
 
+// ----- The I Can Play Guitar -----
+//
+// Blub's own drawing of the guitar (no photographs or logos), after the
+// cartridges' tutorial picture of it: a red electric guitar lying across
+// under the TV, its neck to the left with the coloured fret buttons (all
+// twelve frets on the outer strings, the first five on the four between),
+// a white pickguard on the body with two round blue buttons (Home, Pause)
+// and the arrow pad round Enter, and the six strings over the body, where
+// they are plucked. The low E lies on top, as on a guitar held to play.
+
+/// The guitar drawing's height (its width is W, as the piano's).
+const GH: f32 = 138.0;
+/// The picture on the TV (4:3).
+const G_PICTURE: Rect = Rect { min: pos2(21.0, 4.0), max: pos2(109.0, 70.0) };
+/// The guitar, all of it (the pointer's area).
+const G_GUITAR: Rect = Rect { min: pos2(0.5, 76.0), max: pos2(129.0, 134.0) };
+/// The neck (the fret buttons' board) and the frets' span along it.
+const G_NECK: Rect = Rect { min: pos2(6.0, 89.0), max: pos2(81.0, 118.0) };
+const G_FRETS: (f32, f32) = (8.0, 80.0);
+/// The strings over the body: plucked between the pickup and the bridge.
+const G_PICKUP: Rect = Rect { min: pos2(105.0, 89.0), max: pos2(108.5, 118.0) };
+const G_BRIDGE: f32 = 124.0;
+
+/// String `string`'s line across the neck and body (low E, string 5, on
+/// top).
+fn string_y(string: usize) -> f32 {
+    G_NECK.min.y + 3.0 + (blub_piano::STRINGS - 1 - string) as f32 * 4.6
+}
+
+/// Fret `fret`'s button on string `string` (drawing units).
+fn fret_rect(string: usize, fret: usize) -> Rect {
+    let w = (G_FRETS.1 - G_FRETS.0) / blub_piano::FRETS as f32;
+    Rect::from_center_size(pos2(G_FRETS.0 + (fret as f32 - 0.5) * w, string_y(string)), vec2(w * 0.72, 3.3))
+}
+
+/// Where string `string` is plucked.
+fn string_rect(string: usize) -> Rect {
+    Rect::from_min_max(pos2(G_PICKUP.max.x + 0.2, string_y(string) - 2.3), pos2(G_BRIDGE - 1.0, string_y(string) + 2.3))
+}
+
+/// The guitar's buttons: each one's place (centre and size).
+fn guitar_button_rects() -> Vec<(GuitarButton, Rect)> {
+    let at = |x: f32, y: f32, w: f32, h: f32| Rect::from_center_size(pos2(x, y), vec2(w, h));
+    let (x, y, arm) = (97.5, 103.5, 4.4);
+    vec![
+        (GuitarButton::Home, at(87.0, 98.0, 5.2, 5.2)),
+        (GuitarButton::Pause, at(87.0, 109.0, 5.2, 5.2)),
+        (GuitarButton::Up, at(x, y - arm, 3.4, 3.6)),
+        (GuitarButton::Down, at(x, y + arm, 3.4, 3.6)),
+        (GuitarButton::Left, at(x - arm, y, 3.6, 3.4)),
+        (GuitarButton::Right, at(x + arm, y, 3.6, 3.4)),
+        (GuitarButton::Enter, at(x, y, 4.0, 4.0)),
+    ]
+}
+
+/// The colour of each fret's buttons (fret 1 to 12), as the cartridges'
+/// neck pictures colour them.
+const FRET_COLOURS: [Color32; 12] = [
+    Color32::from_rgb(170, 220, 70),
+    Color32::from_rgb(200, 90, 200),
+    Color32::from_rgb(240, 225, 140),
+    Color32::from_rgb(80, 130, 220),
+    Color32::from_rgb(220, 180, 150),
+    Color32::from_rgb(60, 190, 120),
+    Color32::from_rgb(235, 150, 220),
+    Color32::from_rgb(235, 230, 205),
+    Color32::from_rgb(140, 140, 140),
+    Color32::from_rgb(110, 210, 240),
+    Color32::from_rgb(235, 80, 90),
+    Color32::from_rgb(245, 170, 70),
+];
+
+/// The I Can Play Guitar's drawing.
+pub fn guitar_layout() -> Layout {
+    Layout {
+        aspect: W / GH,
+        screen: Rect::from_min_max(pos2(G_PICTURE.min.x / W, G_PICTURE.min.y / GH), pos2(G_PICTURE.max.x / W, G_PICTURE.max.y / GH)),
+        screen_aspect: blub_piano::SCREEN_W as f32 / blub_piano::SCREEN_H as f32,
+        guitar: true,
+    }
+}
+
+/// The guitar's input under `p` (screen points).
+fn guitar_hit(map: &Map, p: Pos2) -> Option<Input> {
+    for string in 0..blub_piano::STRINGS {
+        for fret in 1..=blub_piano::FRETS {
+            if blub_piano::has_fret(string, fret) && map.r(fret_rect(string, fret).expand(0.6)).contains(p) {
+                return Some(Input::Fret(string as u8, fret as u8));
+            }
+        }
+        if map.r(string_rect(string)).contains(p) {
+            return Some(Input::String(string as u8));
+        }
+    }
+    if map.r(G_PICKUP).contains(p) {
+        return Some(Input::StrumAll);
+    }
+    guitar_button_rects().into_iter().find(|(_, r)| map.r(*r).contains(p)).map(|(b, _)| Input::Guitar(b))
+}
+
+fn paint_guitar(map: &Map, lit: &Lit, ctx: &egui::Context) -> Vec<egui::Shape> {
+    let s = map.s();
+    let mut out = Vec::new();
+    // The TV, as the piano's: a frame round the picture on a short stand.
+    let tv = map.r(G_PICTURE.expand(4.0));
+    out.push(egui::Shape::rect_filled(map.r(Rect::from_center_size(pos2(W / 2.0, G_PICTURE.max.y + 5.6), vec2(26.0, 3.0))), 1.0 * s, Color32::from_gray(40)));
+    out.push(egui::Shape::rect_stroke(tv.shrink(2.0 * s), 2.0 * s, Stroke::new(4.0 * s, Color32::from_gray(28)), egui::StrokeKind::Middle));
+    out.push(egui::Shape::rect_stroke(tv, 4.0 * s, Stroke::new(0.6 * s, Color32::from_gray(70)), egui::StrokeKind::Inside));
+    // The body: two round bouts and the waist between, a shadow under it.
+    let red = Color32::from_rgb(214, 44, 40);
+    let dark = mix(red, Color32::BLACK, 0.45);
+    let bouts = [(pos2(100.0, 92.0), 12.5), (pos2(108.0, 112.0), 18.0)];
+    for (c, r) in bouts {
+        out.push(egui::Shape::circle_filled(map.p(c + vec2(0.0, 1.2)), r * s, Color32::from_black_alpha(80)));
+    }
+    for (c, r) in bouts {
+        out.push(egui::Shape::circle_filled(map.p(c), r * s, dark));
+    }
+    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(80.0, 88.0), pos2(112.0, 118.0))), 4.0 * s, dark));
+    for (c, r) in bouts {
+        out.push(egui::Shape::circle_filled(map.p(c - vec2(0.4, 0.6)), (r - 1.0) * s, red));
+    }
+    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(81.0, 88.6), pos2(112.0, 117.2))), 3.6 * s, red));
+    out.push(egui::Shape::ellipse_filled(map.p(pos2(104.0, 80.0)), vec2(8.0, 1.0) * s, Color32::from_white_alpha(40)));
+    // The pickguard, white, under the buttons and the strings' ends.
+    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(82.0, 90.0), pos2(G_BRIDGE + 1.0, 117.0))), 5.0 * s, Color32::from_gray(244)));
+    // The bridge, and the whammy bar from it.
+    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(G_BRIDGE - 0.6, 89.5), pos2(G_BRIDGE + 1.6, 117.5))), 0.6 * s, Color32::from_gray(170)));
+    out.push(egui::Shape::line_segment([map.p(pos2(G_BRIDGE, 118.0)), map.p(pos2(112.0, 128.0))], Stroke::new(1.0 * s, Color32::from_gray(225))));
+    // The neck: the headstock, the board and its fret wires.
+    out.push(egui::Shape::rect_filled(map.r(Rect::from_min_max(pos2(0.8, G_NECK.min.y - 2.5), pos2(G_NECK.min.x + 0.5, G_NECK.max.y + 2.5))), 2.0 * s, Color32::from_rgb(40, 40, 46)));
+    for k in 0..3 {
+        for y in [G_NECK.min.y - 1.2, G_NECK.max.y + 1.2] {
+            out.push(egui::Shape::circle_filled(map.p(pos2(2.0 + k as f32 * 1.6, y)), 0.6 * s, Color32::from_gray(190)));
+        }
+    }
+    out.push(egui::Shape::rect_filled(map.r(G_NECK).translate(vec2(0.0, 0.8 * s)), 1.0 * s, Color32::from_black_alpha(80)));
+    out.push(egui::Shape::rect_filled(map.r(G_NECK), 1.0 * s, Color32::from_rgb(250, 242, 215)));
+    let fret_w = (G_FRETS.1 - G_FRETS.0) / blub_piano::FRETS as f32;
+    for f in 0..=blub_piano::FRETS {
+        let x = G_FRETS.0 + f as f32 * fret_w;
+        out.push(egui::Shape::line_segment([map.p(pos2(x, G_NECK.min.y)), map.p(pos2(x, G_NECK.max.y))], Stroke::new(0.4 * s, Color32::from_gray(150))));
+    }
+    // The strings, along the neck and over the body (lit while plucked).
+    for string in 0..blub_piano::STRINGS {
+        let y = string_y(string);
+        let width = (0.25 + 0.07 * string as f32) * s;
+        let on = (lit.pressed)(Input::String(string as u8)) || (lit.pressed)(Input::StrumAll);
+        let col = if on { LIT } else { Color32::from_gray(150) };
+        out.push(egui::Shape::line_segment([map.p(pos2(G_NECK.min.x, y)), map.p(pos2(G_NECK.max.x, y))], Stroke::new(width, Color32::from_gray(160))));
+        out.push(egui::Shape::line_segment([map.p(pos2(G_PICKUP.min.x, y)), map.p(pos2(G_BRIDGE, y))], Stroke::new(width + if on { 0.4 * s } else { 0.0 }, col)));
+    }
+    // The pickup: plucks all six.
+    let all = (lit.pressed)(Input::StrumAll);
+    let pickup = map.r(G_PICKUP);
+    out.push(egui::Shape::rect_filled(pickup, 0.8 * s, if all { mix(Color32::from_rgb(190, 225, 245), LIT, 0.5) } else { Color32::from_rgb(190, 225, 245) }));
+    out.push(egui::Shape::rect_stroke(pickup, 0.8 * s, Stroke::new(0.3 * s, Color32::from_rgb(80, 120, 150)), egui::StrokeKind::Inside));
+    // The fret buttons.
+    for string in 0..blub_piano::STRINGS {
+        for fret in 1..=blub_piano::FRETS {
+            if !blub_piano::has_fret(string, fret) {
+                continue;
+            }
+            let i = Input::Fret(string as u8, fret as u8);
+            let on = (lit.pressed)(i);
+            let r = map.r(fret_rect(string, fret));
+            let col = FRET_COLOURS[fret - 1];
+            out.push(egui::Shape::rect_filled(r.translate(vec2(0.0, 0.35 * s)), r.height() * 0.5, mix(col, Color32::BLACK, 0.35)));
+            let face = if on { r.translate(vec2(0.0, 0.3 * s)) } else { r };
+            out.push(egui::Shape::rect_filled(face, r.height() * 0.5, if on { mix(col, LIT, 0.6) } else { col }));
+            out.push(egui::Shape::rect_filled(
+                Rect::from_min_size(face.min + vec2(face.width() * 0.25, 0.3 * s), vec2(face.width() * 0.5, face.height() * 0.25)),
+                face.height() * 0.12,
+                Color32::from_white_alpha(70),
+            ));
+            if lit.show_caps
+                && let Some(cap) = (lit.cap)(i)
+            {
+                keycap(ctx, &mut out, face.center(), &cap, 1.5 * s, on);
+            }
+        }
+    }
+    // The buttons: Home and Pause round and blue, the arrows round Enter.
+    for (b, r) in guitar_button_rects() {
+        let i = Input::Guitar(b);
+        let on = (lit.pressed)(i);
+        let r = map.r(r);
+        let face = if on { r.translate(vec2(0.0, 0.3 * s)) } else { r };
+        let c = face.center();
+        let white = Color32::WHITE;
+        match b {
+            GuitarButton::Home | GuitarButton::Pause | GuitarButton::Enter => {
+                let col = if b == GuitarButton::Enter { Color32::from_rgb(50, 90, 200) } else { Color32::from_rgb(70, 140, 230) };
+                out.push(egui::Shape::circle_filled(r.center() + vec2(0.0, 0.4 * s), r.width() * 0.5, mix(col, Color32::BLACK, 0.4)));
+                out.push(egui::Shape::circle_filled(c, r.width() * 0.5, if on { mix(col, LIT, 0.55) } else { col }));
+                out.push(egui::Shape::circle_filled(c - vec2(0.4, 0.5) * s, r.width() * 0.18, Color32::from_white_alpha(50)));
+                if b == GuitarButton::Home {
+                    out.push(egui::Shape::convex_polygon(vec![c + vec2(0.0, -1.2) * s, c + vec2(1.3, -0.1) * s, c + vec2(-1.3, -0.1) * s], white, Stroke::NONE));
+                    out.push(egui::Shape::rect_filled(Rect::from_min_max(c + vec2(-0.85, -0.2) * s, c + vec2(0.85, 1.1) * s), 0.1 * s, white));
+                } else if b == GuitarButton::Pause {
+                    for dx in [-0.5, 0.5] {
+                        out.push(egui::Shape::rect_filled(Rect::from_center_size(c + vec2(dx, 0.0) * s, vec2(0.45, 1.7) * s), 0.15 * s, white));
+                    }
+                }
+            }
+            _ => {
+                // An arrow, yellow up and down, purple left and right (as
+                // the cartridges draw the pad), pointing out.
+                let (col, dir) = match b {
+                    GuitarButton::Up => (Color32::from_rgb(240, 190, 40), vec2(0.0, -1.0)),
+                    GuitarButton::Down => (Color32::from_rgb(240, 190, 40), vec2(0.0, 1.0)),
+                    GuitarButton::Left => (Color32::from_rgb(150, 60, 190), vec2(-1.0, 0.0)),
+                    _ => (Color32::from_rgb(150, 60, 190), vec2(1.0, 0.0)),
+                };
+                let side = vec2(-dir.y, dir.x);
+                let tri = |c: Pos2, k: f32| {
+                    let mut p = vec![c + dir * 1.7 * k * s, c - dir * 1.3 * k * s + side * 1.7 * k * s, c - dir * 1.3 * k * s - side * 1.7 * k * s];
+                    // Clockwise on screen, as egui fills convex polygons.
+                    if (p[1] - p[0]).x * (p[2] - p[0]).y - (p[1] - p[0]).y * (p[2] - p[0]).x < 0.0 {
+                        p.swap(1, 2);
+                    }
+                    p
+                };
+                out.push(egui::Shape::convex_polygon(tri(r.center() + vec2(0.0, 0.4 * s), 1.0), mix(col, Color32::BLACK, 0.4), Stroke::NONE));
+                out.push(egui::Shape::convex_polygon(tri(c, 1.0), if on { mix(col, LIT, 0.55) } else { col }, Stroke::NONE));
+            }
+        }
+        if lit.show_caps
+            && let Some(cap) = (lit.cap)(i)
+        {
+            let at = match b {
+                GuitarButton::Home | GuitarButton::Pause => face.left_center() - vec2(2.2 * s, 0.0),
+                GuitarButton::Up => face.center_top() - vec2(0.0, 1.2 * s),
+                GuitarButton::Down => face.center_bottom() + vec2(0.0, 1.2 * s),
+                _ => face.center_bottom() + vec2(0.0, 0.2 * s),
+            };
+            if !matches!(b, GuitarButton::Left | GuitarButton::Right | GuitarButton::Enter) {
+                keycap(ctx, &mut out, at, &cap, 1.4 * s, on);
+            }
+        }
+    }
+    // The strings' keys, beside the bridge; the pickup's (all strings)
+    // under it.
+    if lit.show_caps {
+        for string in 0..blub_piano::STRINGS {
+            let i = Input::String(string as u8);
+            if let Some(cap) = (lit.cap)(i) {
+                keycap(ctx, &mut out, map.p(pos2(G_BRIDGE + 3.6, string_y(string))), &cap, 1.4 * s, (lit.pressed)(i));
+            }
+        }
+        if let Some(cap) = (lit.cap)(Input::StrumAll) {
+            keycap(ctx, &mut out, map.p(pos2(G_PICKUP.center().x, G_PICKUP.max.y + 2.2)), &cap, 1.4 * s, all);
+        }
+    }
+    for (x, y, t) in [(87.0, 101.6, "HOME"), (87.0, 112.6, "PAUSE")] {
+        out.push(text(ctx, map.p(pos2(x, y)), egui::Align2::CENTER_CENTER, t, 1.1 * s, INK));
+    }
+    out.push(text(ctx, map.p(pos2(100.0, 115.0)), egui::Align2::CENTER_CENTER, "Blub", 2.2 * s, Color32::from_rgb(232, 120, 30)));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,7 +888,33 @@ mod tests {
             assert!(PANEL.contains_rect(r), "{b:?} lies on the panel");
         }
         assert_eq!(hit(&map, map.p(PICTURE.center())), None, "the picture is not a control");
-        let l = layout();
-        assert!((l.screen.width() * l.aspect / l.screen.height() - 4.0 / 3.0).abs() < 0.01, "the picture keeps its shape");
+        for l in [layout(false), layout(true)] {
+            assert!((l.screen.width() * l.aspect / l.screen.height() - 4.0 / 3.0).abs() < 0.01, "the picture keeps its shape");
+        }
+    }
+
+    #[test]
+    fn the_pointer_finds_the_guitar_s_controls() {
+        let map = Map { shell: Rect::from_min_size(Pos2::ZERO, vec2(W * 2.0, GH * 2.0)) };
+        let mut frets = 0;
+        for string in 0..blub_piano::STRINGS {
+            for fret in 1..=blub_piano::FRETS {
+                if blub_piano::has_fret(string, fret) {
+                    frets += 1;
+                    let r = fret_rect(string, fret);
+                    assert!(G_NECK.contains_rect(r));
+                    assert_eq!(guitar_hit(&map, map.p(r.center())), Some(Input::Fret(string as u8, fret as u8)));
+                }
+            }
+            assert_eq!(guitar_hit(&map, map.p(string_rect(string).center())), Some(Input::String(string as u8)));
+        }
+        assert_eq!(frets, blub_piano::FRET_BUTTONS);
+        assert_eq!(guitar_hit(&map, map.p(G_PICKUP.center())), Some(Input::StrumAll));
+        for (b, r) in guitar_button_rects() {
+            assert_eq!(guitar_hit(&map, map.p(r.center())), Some(Input::Guitar(b)), "{b:?}");
+            assert!(G_GUITAR.contains_rect(r));
+        }
+        assert_eq!(guitar_hit(&map, map.p(G_PICTURE.center())), None, "the picture is not a control");
+        assert!(G_PICTURE.max.y + 4.0 < G_GUITAR.min.y && G_GUITAR.max.y < GH, "the TV, then the guitar");
     }
 }

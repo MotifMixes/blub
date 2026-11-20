@@ -4,7 +4,7 @@
 //! Exit codes: 0 = done, 1 = usage or load error.
 
 use anyhow::{Context, Result, bail};
-use blub_piano::{Button, Piano, SCREEN_H, SCREEN_W};
+use blub_piano::{Button, GuitarButton, Piano, SCREEN_H, SCREEN_W};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -33,12 +33,15 @@ enum Command {
         /// Also save the picture at these frames (`<screenshot>.<frame>.png`).
         #[arg(long, value_delimiter = ',')]
         shot_at: Vec<u64>,
-        /// Presses: `frame:what[:u]`, `;`-separated, where what is a key
-        /// (k0-k35) or a button (enter, home, scrollup, tempoup...), and
-        /// `u` lets it go.
+        /// Presses: `frame:what[:u]`, `;`-separated, where what is, on the
+        /// piano, a key (k0-k35) or a button (enter, home, scrollup,
+        /// tempoup...); on the guitar, a fret (f1.1-f6.12: string 1, the
+        /// high E, to 6, fret 1 to 12), a string plucked (s1-s6) or a button
+        /// (up, down, left, right, enter, home, pause); and `u` lets it go.
         #[arg(long, default_value = "")]
         press: String,
-        /// The TV / Keyboard Mode slider at Keyboard Mode.
+        /// The TV / Keyboard Mode slider at Keyboard Mode (the guitar: its
+        /// switch for playing without the TV).
         #[arg(long)]
         keyboard_mode: bool,
         /// Save the sound here (.wav, stereo).
@@ -85,15 +88,45 @@ struct Press {
 enum What {
     Key(usize),
     Button(Button),
+    /// The guitar's: a fret (string 0-5, fret), a string, a button.
+    Fret(usize, usize),
+    String(usize),
+    Guitar(GuitarButton),
 }
 
-fn parse_presses(s: &str) -> Result<Vec<Press>> {
+/// A guitar input's name: `f<string>.<fret>`, `s<string>` or a button.
+fn guitar_what(name: &str) -> Result<What> {
+    if let Some((string, fret)) = name.strip_prefix('f').and_then(|f| f.split_once('.')) {
+        let (string, fret): (usize, usize) = (string.parse()?, fret.parse()?);
+        if !(1..=blub_piano::STRINGS).contains(&string) || !blub_piano::has_fret(string - 1, fret) {
+            bail!("no fret {name} (f1.1-f6.12; the middle strings have frets 1-5)");
+        }
+        return Ok(What::Fret(string - 1, fret));
+    }
+    if let Some(string) = name.strip_prefix('s').and_then(|s| s.parse::<usize>().ok()) {
+        if !(1..=blub_piano::STRINGS).contains(&string) {
+            bail!("no string {name} (s1-s6)");
+        }
+        return Ok(What::String(string - 1));
+    }
+    GuitarButton::ALL
+        .into_iter()
+        .find(|b| format!("{b:?}").eq_ignore_ascii_case(name))
+        .map(What::Guitar)
+        .with_context(|| format!("unknown guitar input {name:?}"))
+}
+
+fn parse_presses(s: &str, guitar: bool) -> Result<Vec<Press>> {
     let mut out = Vec::new();
     for item in s.split(';').map(str::trim).filter(|i| !i.is_empty()) {
         let parts: Vec<&str> = item.split(':').collect();
         let (Some(frame), Some(name)) = (parts.first().and_then(|f| f.parse().ok()), parts.get(1)) else {
             bail!("bad press {item:?} (want frame:what[:u])");
         };
+        if guitar {
+            out.push(Press { frame, what: guitar_what(name)?, down: parts.get(2) != Some(&"u") });
+            continue;
+        }
         let what = match name.strip_prefix('k').and_then(|k| k.parse::<usize>().ok()) {
             Some(k) if k < blub_piano::KEYS => What::Key(k),
             Some(_) => bail!("no key {name} (k0-k35)"),
@@ -122,8 +155,9 @@ fn real_main() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Headless { cart, frames, screenshot, shot_at, press, keyboard_mode, audio_out, load_state, save_state } => {
-            let presses = parse_presses(&press)?;
             let mut piano = Piano::new(&read_cart(&cart)?);
+            let presses = parse_presses(&press, piano.model() == blub_piano::Model::Guitar)?;
+            eprintln!("{}", piano.model().name());
             piano.set_keyboard_mode(keyboard_mode);
             if let Some(path) = &load_state {
                 let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
@@ -137,6 +171,10 @@ fn real_main() -> Result<ExitCode> {
                     match p.what {
                         What::Key(k) => piano.key(k, p.down),
                         What::Button(b) => piano.button(b, p.down),
+                        What::Fret(string, fret) => piano.fret(string, fret, p.down),
+                        What::String(string) if p.down => piano.pluck(string),
+                        What::String(_) => {}
+                        What::Guitar(b) => piano.guitar_button(b, p.down),
                     }
                 }
                 piano.run_frame();
@@ -247,10 +285,14 @@ mod tests {
 
     #[test]
     fn presses_parse() {
-        let p = parse_presses("120:enter; 30:k5 ;40:k5:u").unwrap();
+        let p = parse_presses("120:enter; 30:k5 ;40:k5:u", false).unwrap();
         assert_eq!(p.iter().map(|p| (p.frame, p.down)).collect::<Vec<_>>(), [(30, true), (40, false), (120, true)]);
         assert!(matches!(p[2].what, What::Button(Button::Enter)));
-        assert!(parse_presses("1:k36").is_err() && parse_presses("1:nope").is_err() && parse_presses("x").is_err());
+        assert!(parse_presses("1:k36", false).is_err() && parse_presses("1:nope", false).is_err() && parse_presses("x", false).is_err());
+        let g = parse_presses("1:enter;2:f6.12;3:s1;4:f2.5:u", true).unwrap();
+        assert!(matches!(g[0].what, What::Guitar(GuitarButton::Enter)));
+        assert!(matches!(g[1].what, What::Fret(5, 12)) && matches!(g[2].what, What::String(0)) && !g[3].down);
+        assert!(parse_presses("1:f2.6", true).is_err() && parse_presses("1:s7", true).is_err() && parse_presses("1:k5", true).is_err());
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
     }
 }

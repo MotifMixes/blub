@@ -19,6 +19,9 @@ const MAX_DEPTH: usize = 3;
 const ART_FRAMES: u64 = 1200;
 const ART_AFTER_LOGO: u64 = 450;
 const ART_EVERY: u64 = 20;
+/// The guitar: Enter pressed on the console's title screen at this frame,
+/// for the cartridge's own title screen.
+const GUITAR_ART_PRESS: u64 = 200;
 /// Games' art made at once (each runs a machine on its own thread): all
 /// cores but two, so the first library scan is quick.
 fn art_threads() -> usize {
@@ -51,12 +54,15 @@ fn remove_stale_art(art_dir: &Path) {
 pub enum Hardware {
     /// The Fisher-Price I Can Play Piano (2006).
     Piano,
+    /// The Fisher-Price I Can Play Guitar (2007).
+    Guitar,
 }
 
 impl Hardware {
     pub fn name(self) -> &'static str {
         match self {
             Hardware::Piano => "I Can Play Piano",
+            Hardware::Guitar => "I Can Play Guitar",
         }
     }
 }
@@ -66,10 +72,20 @@ impl Hardware {
 pub enum Family {
     /// An I Can Play Piano cartridge.
     Piano,
+    /// An I Can Play Guitar cartridge.
+    Guitar,
 }
 
 impl Family {
-    pub const ALL: [Family; 1] = [Family::Piano];
+    pub const ALL: [Family; 2] = [Family::Piano, Family::Guitar];
+
+    /// The family of a cartridge (`blub_piano::detect`).
+    pub fn of(cart: &[u8]) -> Family {
+        match blub_piano::detect(cart) {
+            blub_piano::Model::Piano => Family::Piano,
+            blub_piano::Model::Guitar => Family::Guitar,
+        }
+    }
 
     /// Book readers' "games" (none yet: kept for the library's Books side).
     pub fn is_book(self) -> bool {
@@ -83,6 +99,7 @@ impl Family {
     pub fn console(self) -> Hardware {
         match self {
             Family::Piano => Hardware::Piano,
+            Family::Guitar => Hardware::Guitar,
         }
     }
 
@@ -93,8 +110,19 @@ impl Family {
 }
 
 /// Known cartridges, by CRC32 (the MAME software list's): title, and the
-/// frame of the boot where its title screen is fully shown (for its art).
+/// frame of the boot where its title screen is fully shown (for its art;
+/// 0 for the guitar's, whose titles come after a button press: see
+/// `make_art`).
 const KNOWN: &[(u32, &str, u64)] = &[
+    // I Can Play Guitar.
+    (0xc804_822e, "Guitar Favorites", 0),
+    (0x0355_a72a, "Barbie Guitar Party", 0),
+    (0x5a4d_af19, "American Idol - Guitar Greats", 0),
+    (0xb361_5978, "Nashville Hits", 0),
+    (0xd2c4_da6b, "Hot Wheels - Road Tunes", 0),
+    (0x74b8_1353, "Rock 101", 0),
+    (0xc6ea_d0fd, "SpongeBob SquarePants - Surf's Up", 0),
+    // I Can Play Piano.
     (0x908a_965d, "American Idol - Take the Stage", 840),
     (0x393b_eea8, "Barbie Princess - Enchanted Sounds", 720),
     (0x9136_a225, "Dora the Explorer - Musical Adventure", 840),
@@ -346,11 +374,12 @@ fn describe(path: &Path, cart: &[u8], key: String, art: Art) -> Game {
     if !known {
         details.push(("Dump", "Not in the known list".into()));
     }
+    let family = Family::of(cart);
     Game {
         path: path.to_path_buf(),
-        family: Family::Piano,
+        family,
         title: title_of(path, cart),
-        subtitle: format!("I Can Play Piano · {} MB", cart.len() >> 20),
+        subtitle: format!("{} · {} MB", family.name(), cart.len() >> 20),
         details,
         tags: Vec::new(),
         key,
@@ -369,11 +398,17 @@ struct Shot {
 fn make_art(cart: &[u8]) -> Option<Shot> {
     use blub_piano::{SCREEN_H, SCREEN_W};
     let crc = crc32fast::hash(cart);
-    let title_frame = KNOWN.iter().find(|(c, ..)| *c == crc).map(|k| k.2);
+    let title_frame = KNOWN.iter().find(|(c, ..)| *c == crc).map(|k| k.2).filter(|&f| f > 0);
     let mut piano = blub_piano::Piano::new(cart);
+    // The guitar's cartridges all start on the console's own title screen
+    // and show their own once a button is pressed.
+    let guitar = piano.model() == blub_piano::Model::Guitar;
     let mut frame = vec![0u32; SCREEN_W * SCREEN_H];
     let mut best: Option<(usize, Vec<u32>)> = None;
     for n in 1..=title_frame.map_or(ART_FRAMES, |f| f + 1) {
+        if guitar && (n == GUITAR_ART_PRESS || n == GUITAR_ART_PRESS + 10) {
+            piano.guitar_button(blub_piano::GuitarButton::Enter, n == GUITAR_ART_PRESS);
+        }
         piano.run_frame();
         // Its sound is not wanted (and would pile up).
         let _ = piano.take_audio();
@@ -384,7 +419,8 @@ fn make_art(cart: &[u8]) -> Option<Shot> {
             }
             continue;
         }
-        if n < ART_AFTER_LOGO || n % ART_EVERY != 0 {
+        let after = if guitar { GUITAR_ART_PRESS + 60 } else { ART_AFTER_LOGO };
+        if n < after || n % ART_EVERY != 0 {
             continue;
         }
         piano.render(&mut frame);

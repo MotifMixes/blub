@@ -11,6 +11,7 @@ type C = egui::Color32;
 pub fn color(hw: Hardware) -> C {
     match hw {
         Hardware::Piano => C::from_rgb(60, 140, 230),
+        Hardware::Guitar => C::from_rgb(225, 70, 60),
     }
 }
 
@@ -18,6 +19,7 @@ pub fn color(hw: Hardware) -> C {
 pub fn name(hw: Hardware) -> &'static str {
     match hw {
         Hardware::Piano => "Piano",
+        Hardware::Guitar => "Guitar",
     }
 }
 
@@ -94,6 +96,42 @@ pub fn paint_device(p: &egui::Painter, rect: egui::Rect, hw: Hardware) {
                 let r = egui::Rect::from_center_size(egui::pos2(x, keys.min.y + keys.height() * 0.3), egui::vec2(w * 0.6, keys.height() * 0.6));
                 p.rect_filled(r, 1.0 * u, C::from_gray(30));
             }
+        }
+        // I Can Play Guitar: a red electric guitar lying across, its neck to
+        // the left with coloured fret buttons, a white pickguard with the
+        // round buttons, and six strings over the body.
+        Hardware::Guitar => {
+            let red = C::from_rgb(214, 44, 40);
+            let shadow = mix(red, C::BLACK, 0.45);
+            // The neck and headstock.
+            p.rect_filled(rr(-24.0, 0.0, 52.0, 13.0).translate(v(0.0, 2.0)), 2.0 * u, C::from_black_alpha(45));
+            p.rect_filled(rr(-24.0, 0.0, 52.0, 13.0), 2.0 * u, C::from_rgb(250, 240, 210));
+            p.rect_filled(rr(-46.0, 0.0, 9.0, 17.0), 3.0 * u, C::from_rgb(40, 40, 46));
+            let frets = [C::from_rgb(110, 200, 70), C::from_rgb(220, 120, 210), C::from_rgb(70, 170, 240), C::from_rgb(245, 215, 40), C::from_rgb(250, 160, 30)];
+            for (i, col) in frets.into_iter().enumerate() {
+                let x = -42.0 + i as f32 * 8.6;
+                p.line_segment([at(x + 4.3, -6.5), at(x + 4.3, 6.5)], egui::Stroke::new(0.8 * u, C::from_gray(150)));
+                for y in [-3.5, 0.0, 3.5] {
+                    p.rect_filled(rr(x, y, 4.2, 2.0), 1.0 * u, col);
+                }
+            }
+            // The body: two round bouts.
+            for (x, y, r) in [(24.0, -9.0, 17.0), (28.0, 10.0, 20.0)] {
+                p.circle_filled(at(x, y + 2.0), r * u, C::from_black_alpha(45));
+                p.circle_filled(at(x, y), r * u, shadow);
+                p.circle_filled(at(x - 0.5, y - 0.8), (r - 1.2) * u, red);
+            }
+            // The pickguard with its buttons.
+            p.rect_filled(rr(20.0, 2.0, 22.0, 18.0), 5.0 * u, C::from_gray(246));
+            button(p, at(14.0, -2.0), 2.4 * u, C::from_rgb(70, 140, 230));
+            button(p, at(14.0, 5.0), 2.4 * u, C::from_rgb(70, 140, 230));
+            button(p, at(23.0, 1.5), 2.6 * u, C::from_rgb(70, 110, 215));
+            // The strings over the body.
+            for k in 0..6 {
+                let y = -5.0 + k as f32 * 2.0;
+                p.line_segment([at(-2.0, y), at(42.0, y)], egui::Stroke::new(0.5 * u, C::from_gray(200)));
+            }
+            p.rect_filled(rr(34.0, 0.0, 4.0, 14.0), 1.0 * u, C::from_rgb(190, 225, 245));
         }
     }
 }
