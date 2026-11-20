@@ -883,7 +883,7 @@ mod tests {
     fn records_any_screen_size() {
         let dir = temp("size");
         let mut rec = Recorder::start(&dir, &dir.join("temp"), RecordEncoder::Lossless, (320, 240)).unwrap();
-        rec.add_audio(&vec![0; CHANNELS * AUDIO_RATE as usize / 30]).unwrap();
+        rec.add_audio(&vec![0; CHANNELS * (AUDIO_RATE as usize / 30)]).unwrap();
         rec.add_frame(&vec![0x0011_2233; 320 * 240], (320, 240)).unwrap();
         // 2x HD: left half red, right half blue.
         let hd: Vec<u32> = (0..640 * 480).map(|i| if i % 640 < 320 { 0x00ff_0000 } else { 0x0000_00ff }).collect();

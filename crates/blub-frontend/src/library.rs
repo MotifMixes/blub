@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn title_screens_beat_flat_screens() {
         let flat = vec![0x0020_4060u32; 320 * 240];
-        let busy: Vec<u32> = (0..320 * 240).map(|i| (i as u32 * 2654435761) & 0xFF_FFFF).collect();
+        let busy: Vec<u32> = (0..320 * 240).map(|i| (i as u32).wrapping_mul(2654435761) & 0xFF_FFFF).collect();
         assert!(colourfulness(&busy) > colourfulness(&flat));
         assert_eq!(colourfulness(&flat), 1);
     }
